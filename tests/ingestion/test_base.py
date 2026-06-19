@@ -11,6 +11,7 @@ import requests
 from include.ingestion.base import (
     WATERMARK_TABLE,
     ensure_watermark_table,
+    fetch_ademe_pages,
     fetch_dido_pages,
     fetch_pages,
     get_watermark,
@@ -302,6 +303,62 @@ class TestFetchDidoPages:
         list(fetch_dido_pages("http://dido/rows", {"filters": "annee:gt:2022"}, page_size=1))
         for c in mock_get.call_args_list:
             assert c[0][1]["filters"] == "annee:gt:2022"
+
+
+# ---------------------------------------------------------------------------
+# fetch_ademe_pages  (ADEME data-fair: page/size/results/total)
+# ---------------------------------------------------------------------------
+
+class TestFetchAdemePages:
+    def _payload(self, records: list, total: int) -> dict:
+        return {"results": records, "total": total}
+
+    @patch("include.ingestion.base._get")
+    def test_single_page(self, mock_get):
+        records = [{"id": 1}, {"id": 2}]
+        mock_get.return_value = self._payload(records, 2)
+        pages = list(fetch_ademe_pages("http://ademe/lines", {}, page_size=100))
+        assert pages == [records]
+        mock_get.assert_called_once()
+
+    @patch("include.ingestion.base._get")
+    def test_multiple_pages(self, mock_get):
+        page1 = [{"id": i} for i in range(3)]
+        page2 = [{"id": i} for i in range(3, 5)]
+        mock_get.side_effect = [
+            self._payload(page1, 5),
+            self._payload(page2, 5),
+        ]
+        pages = list(fetch_ademe_pages("http://ademe/lines", {}, page_size=3))
+        assert pages == [page1, page2]
+
+    @patch("include.ingestion.base._get")
+    def test_stops_on_empty_results(self, mock_get):
+        mock_get.return_value = self._payload([], 0)
+        pages = list(fetch_ademe_pages("http://ademe/lines", {}))
+        assert pages == []
+        mock_get.assert_called_once()
+
+    @patch("include.ingestion.base._get")
+    def test_uses_page_and_size_params(self, mock_get):
+        mock_get.return_value = self._payload([], 0)
+        list(fetch_ademe_pages("http://ademe/lines", {"qs": "annee:2023"}, page_size=5000))
+        call_params = mock_get.call_args[0][1]
+        assert call_params["page"] == 1
+        assert call_params["size"] == 5000
+        assert call_params["qs"] == "annee:2023"
+
+    @patch("include.ingestion.base._get")
+    def test_page_increments_between_pages(self, mock_get):
+        page1 = [{"id": i} for i in range(2)]
+        page2 = [{"id": i} for i in range(2, 4)]
+        mock_get.side_effect = [
+            self._payload(page1, 4),
+            self._payload(page2, 4),
+        ]
+        list(fetch_ademe_pages("http://ademe/lines", {}, page_size=2))
+        pages_requested = [c[0][1]["page"] for c in mock_get.call_args_list]
+        assert pages_requested == [1, 2]
 
 
 # ---------------------------------------------------------------------------

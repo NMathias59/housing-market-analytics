@@ -170,6 +170,32 @@ def fetch_dido_pages(
         logger.debug("DiDo page %d / %d from %s", page, -(-total // page_size), url)
 
 
+def fetch_ademe_pages(
+    url: str,
+    params: dict[str, Any],
+    *,
+    page_size: int = 10_000,
+) -> Iterator[list[dict]]:
+    """
+    Yield pages from an ADEME data-fair REST API endpoint.
+
+    ADEME response envelope: {"total": N, "results": [...]}
+    Uses page (1-indexed) + size parameters.
+    """
+    page = 1
+    while True:
+        payload = _get(url, {**params, "page": page, "size": page_size})
+        records = payload.get("results", [])
+        if not records:
+            break
+        yield records
+        total = payload.get("total", 0)
+        if page * page_size >= total:
+            break
+        page += 1
+        logger.debug("ADEME page %d / %d from %s", page, -(-total // page_size), url)
+
+
 # ---------------------------------------------------------------------------
 # Batch loader
 # ---------------------------------------------------------------------------
