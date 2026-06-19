@@ -2,7 +2,7 @@
 Ingestion EPTB — Prix des terrains et du bâti (maisons individuelles).
 
 Source    : SDES / API DiDo v1
-Table     : db_wh_logement_raw.raw_eptb
+Table     : db_wh_housing_raw.raw_eptb
 Granularité : annuelle × région (~252 lignes par table)
 
 Deux datafiles DiDo sont fusionnés sur (annee, zone_code) :
@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 SOURCE = "eptb"
-TABLE = "db_wh_logement_raw.raw_eptb"
+TABLE = "db_wh_housing_raw.raw_eptb"
 _DIDO_BASE = "https://data.statistiques.developpement-durable.gouv.fr/dido/api/v1"
 
 _RID_TERRAINS = "7b0b1184-f92e-4f8a-8a6a-19b4b23d5118"

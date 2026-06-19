@@ -2,7 +2,7 @@
 Ingestion incrémentale ECLN — Commercialisation de logements neufs.
 
 Source    : SDES / API DiDo v1
-Table     : db_wh_logement_raw.raw_ecln
+Table     : db_wh_housing_raw.raw_ecln
 Granularité : trimestrielle × département (24 k lignes)
 
 Stratégie incrémentale :
@@ -67,7 +67,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 SOURCE = "ecln"
-TABLE = "db_wh_logement_raw.raw_ecln"
+TABLE = "db_wh_housing_raw.raw_ecln"
 _DIDO_BASE = "https://data.statistiques.developpement-durable.gouv.fr/dido/api/v1"
 _RID = "95e4190c-4d70-403f-9537-5b71fd005b1c"
 

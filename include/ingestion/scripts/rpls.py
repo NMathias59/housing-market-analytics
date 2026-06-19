@@ -2,7 +2,7 @@
 Ingestion incrémentale RPLS — Répertoire des logements sociaux.
 
 Source    : SDES / API DiDo v1
-Table     : db_wh_logement_raw.raw_rpls
+Table     : db_wh_housing_raw.raw_rpls
 Granularité : annuelle (snapshot par millésime), 1 ligne par logement
 
 Stratégie incrémentale par millésime :
@@ -65,7 +65,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 SOURCE = "rpls"
-TABLE = "db_wh_logement_raw.raw_rpls"
+TABLE = "db_wh_housing_raw.raw_rpls"
 _DIDO_BASE = "https://data.statistiques.developpement-durable.gouv.fr/dido/api/v1"
 _DATASET_ID = "6390f7cb84f0679b04942fc2"
 _RID = "f3c2f2cb-8fb1-40fd-8733-964247744c9a"

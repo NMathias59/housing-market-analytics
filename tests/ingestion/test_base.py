@@ -369,32 +369,32 @@ class TestLoadDf:
     def test_returns_row_count(self):
         client = MagicMock()
         df = pd.DataFrame({"id": [1, 2, 3]})
-        assert load_df(client, df, "db_wh_logement_raw.raw_eptb") == 3
+        assert load_df(client, df, "db_wh_housing_raw.raw_eptb") == 3
 
     def test_calls_insert_df(self):
         client = MagicMock()
         df = pd.DataFrame({"id": [1]})
-        load_df(client, df, "db_wh_logement_raw.raw_eptb")
+        load_df(client, df, "db_wh_housing_raw.raw_eptb")
         client.insert_df.assert_called_once()
 
     def test_passes_correct_table_name(self):
         client = MagicMock()
         df = pd.DataFrame({"id": [1]})
-        load_df(client, df, "db_wh_logement_raw.raw_eptb")
+        load_df(client, df, "db_wh_housing_raw.raw_eptb")
         table_arg = client.insert_df.call_args[0][0]
-        assert table_arg == "db_wh_logement_raw.raw_eptb"
+        assert table_arg == "db_wh_housing_raw.raw_eptb"
 
     def test_adds_loaded_at_column(self):
         client = MagicMock()
         df = pd.DataFrame({"id": [1]})
-        load_df(client, df, "db_wh_logement_raw.raw_eptb")
+        load_df(client, df, "db_wh_housing_raw.raw_eptb")
         inserted_df = client.insert_df.call_args[0][1]
         assert "_loaded_at" in inserted_df.columns
 
     def test_loaded_at_is_timestamp(self):
         client = MagicMock()
         df = pd.DataFrame({"id": [1]})
-        load_df(client, df, "db_wh_logement_raw.raw_eptb")
+        load_df(client, df, "db_wh_housing_raw.raw_eptb")
         inserted_df = client.insert_df.call_args[0][1]
         assert pd.api.types.is_datetime64_any_dtype(inserted_df["_loaded_at"])
 
@@ -402,11 +402,11 @@ class TestLoadDf:
         client = MagicMock()
         df = pd.DataFrame({"id": [1]})
         original_cols = list(df.columns)
-        load_df(client, df, "db_wh_logement_raw.raw_eptb")
+        load_df(client, df, "db_wh_housing_raw.raw_eptb")
         assert list(df.columns) == original_cols
 
     def test_skips_insert_on_empty_df(self):
         client = MagicMock()
-        result = load_df(client, pd.DataFrame(), "db_wh_logement_raw.raw_eptb")
+        result = load_df(client, pd.DataFrame(), "db_wh_housing_raw.raw_eptb")
         assert result == 0
         client.insert_df.assert_not_called()
