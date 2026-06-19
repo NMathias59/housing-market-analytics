@@ -36,14 +36,14 @@ def _run_mocked(
     *,
     watermark: str | None = None,
     millesimes: list[str] | None = None,
-    pages: list[list[dict]] | None = None,
+    chunks: list[list[dict]] | None = None,
     full_refresh: bool = False,
     dry_run: bool = False,
 ):
     if millesimes is None:
         millesimes = ["2024-01"]
-    if pages is None:
-        pages = [_records()]
+    if chunks is None:
+        chunks = [_records()]
 
     client = MagicMock()
     mocks: dict = {"client": client}
@@ -63,9 +63,11 @@ def _run_mocked(
             patch("include.ingestion.scripts.rpls.get_millesimes",
                   return_value=millesimes)
         )
-        mocks["fetch_dido_pages"] = stack.enter_context(
-            patch("include.ingestion.scripts.rpls.fetch_dido_pages",
-                  return_value=iter(pages))
+        mocks["iter_csv_chunks"] = stack.enter_context(
+            patch("include.ingestion.scripts.rpls.iter_csv_chunks",
+                  side_effect=lambda url, **kw: iter(
+                      pd.DataFrame(c) for c in chunks
+                  ))
         )
         mocks["load_df"] = stack.enter_context(
             patch("include.ingestion.scripts.rpls.load_df",
@@ -224,7 +226,7 @@ class TestRun:
     def test_watermark_set_per_millesime(self):
         _, mocks = _run_mocked(
             millesimes=["2023-01", "2024-01"],
-            pages=[_records(), _records()],
+            chunks=[_records(), _records()],
         )
         wm_calls = [c[0][2] for c in mocks["set_watermark"].call_args_list]
         assert "2023-01" in wm_calls
@@ -255,8 +257,8 @@ class TestRun:
                       return_value=["2024-01"])
             )
             stack.enter_context(
-                patch("include.ingestion.scripts.rpls.fetch_dido_pages",
-                      return_value=iter([_records()]))
+                patch("include.ingestion.scripts.rpls.iter_csv_chunks",
+                      side_effect=lambda url, **kw: iter([pd.DataFrame(_records())]))
             )
             stack.enter_context(
                 patch("include.ingestion.scripts.rpls.load_df",

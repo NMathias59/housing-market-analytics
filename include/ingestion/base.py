@@ -104,7 +104,7 @@ def set_watermark(client, source: str, value: str) -> None:
     reraise=True,
 )
 def _get(url: str, params: dict[str, Any]) -> dict:
-    response = requests.get(url, params=params, timeout=30)
+    response = requests.get(url, params=params, timeout=90)
     response.raise_for_status()
     return response.json()
 
@@ -148,12 +148,13 @@ def fetch_dido_pages(
     url: str,
     params: dict[str, Any],
     *,
-    page_size: int = DEFAULT_PAGE_SIZE,
+    page_size: int = 100,
 ) -> Iterator[list[dict]]:
     """
     Yield pages from a DiDo API endpoint (1-indexed page-based pagination).
 
     DiDo response envelope: {"data": [...], "totalCount": N}
+    pageSize must be one of 10, 20, 50, 100 (API constraint).
     Stops when an empty page is received or all pages have been fetched.
     """
     page = 1
@@ -163,7 +164,7 @@ def fetch_dido_pages(
         if not records:
             break
         yield records
-        total = payload.get("totalCount", 0)
+        total = payload.get("total", 0)
         if page * page_size >= total:
             break
         page += 1
@@ -203,6 +204,8 @@ def fetch_ademe_pages(
 def iter_csv_chunks(
     url: str,
     chunk_size: int = DEFAULT_PAGE_SIZE,
+    *,
+    sep: str = ",",
 ) -> Iterator[pd.DataFrame]:
     """
     Stream-download a CSV or CSV.GZ from *url* and yield DataFrame chunks.
@@ -217,7 +220,7 @@ def iter_csv_chunks(
         yield from pd.read_csv(
             fileobj,
             chunksize=chunk_size,
-            sep=",",
+            sep=sep,
             dtype=str,
             low_memory=False,
         )

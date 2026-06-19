@@ -230,12 +230,12 @@ class TestFetchPages:
 
 
 # ---------------------------------------------------------------------------
-# fetch_dido_pages  (DiDo: page/pageSize/totalCount)
+# fetch_dido_pages  (DiDo: page/pageSize/total)
 # ---------------------------------------------------------------------------
 
 class TestFetchDidoPages:
     def _payload(self, records: list, total: int) -> dict:
-        return {"data": records, "totalCount": total}
+        return {"data": records, "total": total}
 
     @patch("include.ingestion.base._get")
     def test_single_page(self, mock_get):

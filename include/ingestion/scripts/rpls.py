@@ -44,9 +44,9 @@ from dotenv import load_dotenv
 
 from include.ingestion.base import (
     ensure_watermark_table,
-    fetch_dido_pages,
     get_client,
     get_watermark,
+    iter_csv_chunks,
     load_df,
     set_watermark,
 )
@@ -182,16 +182,16 @@ def run(*, full_refresh: bool = False, dry_run: bool = False) -> int:
 
     logger.info("RPLS — loading millesimes %s", to_load)
 
-    endpoint = f"{_DIDO_BASE}/datafiles/{_RID}/rows"
     total_inserted = 0
 
     for millesime in to_load:
         annee = int(millesime[:4])
         logger.info("Processing RPLS millesime %s (annee=%d)", millesime, annee)
         mil_inserted = 0
+        csv_url = f"{_DIDO_BASE}/datafiles/{_RID}/csv?millesime={millesime}"
 
-        for records in fetch_dido_pages(endpoint, {"millesime": millesime}):
-            df = parse(records, annee)
+        for chunk in iter_csv_chunks(csv_url, chunk_size=50_000, sep=";"):
+            df = parse(chunk.to_dict("records"), annee)
             if df.empty:
                 continue
             if dry_run:
