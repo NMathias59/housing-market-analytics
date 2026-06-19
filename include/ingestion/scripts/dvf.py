@@ -25,20 +25,19 @@ Usage :
 from __future__ import annotations
 
 import argparse
-import gzip
 import logging
 import os
 from datetime import datetime
 from typing import Iterator
 
 import pandas as pd
-import requests
 from dotenv import load_dotenv
 
 from include.ingestion.base import (
     ensure_watermark_table,
     get_client,
     get_watermark,
+    iter_csv_chunks,
     load_df,
     set_watermark,
 )
@@ -118,25 +117,6 @@ def _target_year() -> int:
     raw = os.environ.get("DVF_TARGET_YEAR", "")
     return int(raw) if raw else _DEFAULT_TARGET_YEAR
 
-
-def iter_csv_chunks(url: str, chunk_size: int = CHUNK_SIZE) -> Iterator[pd.DataFrame]:
-    """
-    Stream-download a gzip CSV from *url* and yield DataFrame chunks.
-
-    Uses gzip streaming on the raw socket — the full file is never held
-    in memory, which is critical for DVF files exceeding 1 GB uncompressed.
-    """
-    with requests.get(url, stream=True, timeout=300) as resp:
-        resp.raise_for_status()
-        resp.raw.decode_content = True
-        with gzip.GzipFile(fileobj=resp.raw) as gz:
-            yield from pd.read_csv(
-                gz,
-                chunksize=chunk_size,
-                sep=",",
-                dtype=str,
-                low_memory=False,
-            )
 
 
 def parse(chunk: pd.DataFrame) -> pd.DataFrame:

@@ -8,6 +8,7 @@ Base utilities shared by all ingestion scripts:
 
 from __future__ import annotations
 
+import gzip
 import logging
 import os
 from typing import Any, Iterator
@@ -172,6 +173,29 @@ def fetch_dido_pages(
 # ---------------------------------------------------------------------------
 # Batch loader
 # ---------------------------------------------------------------------------
+
+def iter_csv_chunks(
+    url: str,
+    chunk_size: int = DEFAULT_PAGE_SIZE,
+) -> Iterator[pd.DataFrame]:
+    """
+    Stream-download a CSV or CSV.GZ from *url* and yield DataFrame chunks.
+
+    The file is never fully loaded in memory — gzip is decompressed directly
+    on the socket stream. Suitable for files exceeding 1 GB uncompressed.
+    """
+    with requests.get(url, stream=True, timeout=300) as resp:
+        resp.raise_for_status()
+        resp.raw.decode_content = True
+        fileobj = gzip.GzipFile(fileobj=resp.raw) if url.endswith(".gz") else resp.raw
+        yield from pd.read_csv(
+            fileobj,
+            chunksize=chunk_size,
+            sep=",",
+            dtype=str,
+            low_memory=False,
+        )
+
 
 def load_df(client, df: pd.DataFrame, table: str) -> int:
     """
