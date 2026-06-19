@@ -1,155 +1,99 @@
 """
-DAGs d'ingestion du marché immobilier français.
+DAG d'ingestion dynamique — marché immobilier français.
 
-Un DAG par source, chacun avec sa cadence naturelle :
-  - DVF      : annuel  (données publiées par DGFiP début d'année N+1)
-  - DPE      : mensuel (flux continu ADEME)
-  - SITADEL  : mensuel (permis de construire SDES, lag ~2 mois)
-  - ECLN     : trimestriel (commercialisation logements neufs)
-  - EPTB     : annuel  (prix des terrains et maisons neuves)
-  - RPLS     : annuel  (logements sociaux, millésime ~juillet)
+Toutes les sources sont ingérées en parallèle dans db_wh_housing.
+La cadence est mensuelle ; les sources trimestrielles/annuelles
+retournent immédiatement "déjà à jour" grâce aux watermarks.
+
+Sources :
+    dvf      — Demandes de Valeurs Foncières (DGFiP)
+    dpe      — Diagnostics de Performance Énergétique (ADEME)
+    sitadel  — Permis de construire Sit@del2 (SDES/DiDo)
+    ecln     — Commercialisation logements neufs (SDES/DiDo)
+    eptb     — Prix terrains et maisons neuves (SDES/DiDo)
+    rpls     — Répertoire des logements sociaux (SDES/DiDo)
 """
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 
-_DEFAULT_ARGS = {
-    "retries": 2,
-    "retry_delay": __import__("datetime").timedelta(minutes=10),
-    "email_on_failure": False,
-}
-
 # ---------------------------------------------------------------------------
-# DVF — annuel, données N-1 publiées début février
+# Config des sources — ajouter une ligne pour brancher une nouvelle source
 # ---------------------------------------------------------------------------
 
-def _run_dvf(**ctx):
-    from include.ingestion.scripts.dvf import run
-    run()
+SOURCES: list[dict] = [
+    {
+        "source_id": "dvf",
+        "module":    "include.ingestion.scripts.dvf",
+        "doc":       "DVF — Demandes de Valeurs Foncières (DGFiP)",
+    },
+    {
+        "source_id": "dpe",
+        "module":    "include.ingestion.scripts.dpe",
+        "doc":       "DPE — Diagnostics de Performance Énergétique (ADEME)",
+    },
+    {
+        "source_id": "sitadel",
+        "module":    "include.ingestion.scripts.sitadel",
+        "doc":       "Sit@del2 — Permis de construire (SDES/DiDo)",
+    },
+    {
+        "source_id": "ecln",
+        "module":    "include.ingestion.scripts.ecln",
+        "doc":       "ECLN — Commercialisation logements neufs (SDES/DiDo)",
+    },
+    {
+        "source_id": "eptb",
+        "module":    "include.ingestion.scripts.eptb",
+        "doc":       "EPTB — Prix terrains et maisons neuves (SDES/DiDo)",
+    },
+    {
+        "source_id": "rpls",
+        "module":    "include.ingestion.scripts.rpls",
+        "doc":       "RPLS — Répertoire des logements sociaux (SDES/DiDo)",
+    },
+]
 
+# ---------------------------------------------------------------------------
+# Factory — évite la capture de variable en boucle
+# ---------------------------------------------------------------------------
+
+def _make_callable(module_path: str):
+    def _run(**ctx):
+        import importlib
+        mod = importlib.import_module(module_path)
+        mod.run()
+    return _run
+
+
+# ---------------------------------------------------------------------------
+# DAG
+# ---------------------------------------------------------------------------
 
 with DAG(
-    dag_id="ingestion_dvf",
-    description="DVF — Demandes de Valeurs Foncières (annuel)",
-    schedule="0 6 1 2 *",  # 1er février à 06h00
-    start_date=datetime(2024, 2, 1),
-    catchup=False,
-    max_active_runs=1,
-    default_args=_DEFAULT_ARGS,
-    tags=["ingestion", "housing"],
-) as dag_dvf:
-    PythonOperator(task_id="ingest_dvf", python_callable=_run_dvf)
-
-
-# ---------------------------------------------------------------------------
-# DPE — mensuel (flux continu ADEME, ingestion incrémentale par date)
-# ---------------------------------------------------------------------------
-
-def _run_dpe(**ctx):
-    from include.ingestion.scripts.dpe import run
-    run()
-
-
-with DAG(
-    dag_id="ingestion_dpe",
-    description="DPE — Diagnostics de Performance Énergétique (mensuel)",
-    schedule="0 4 1 * *",  # 1er du mois à 04h00
+    dag_id="ingestion_housing",
+    description="Ingestion parallèle de toutes les sources immobilières → db_wh_housing",
+    schedule="0 4 1 * *",   # 1er du mois à 04h00
     start_date=datetime(2024, 1, 1),
     catchup=False,
     max_active_runs=1,
-    default_args=_DEFAULT_ARGS,
+    default_args={
+        "retries": 2,
+        "retry_delay": timedelta(minutes=10),
+        "email_on_failure": False,
+    },
     tags=["ingestion", "housing"],
-) as dag_dpe:
-    PythonOperator(task_id="ingest_dpe", python_callable=_run_dpe)
+) as dag:
 
+    for source in SOURCES:
+        PythonOperator(
+            task_id=f"ingest_{source['source_id']}",
+            python_callable=_make_callable(source["module"]),
+            doc_md=source["doc"],
+        )
 
-# ---------------------------------------------------------------------------
-# SITADEL — mensuel (permis de construire, lag ~2 mois)
-# ---------------------------------------------------------------------------
-
-def _run_sitadel(**ctx):
-    from include.ingestion.scripts.sitadel import run
-    run()
-
-
-with DAG(
-    dag_id="ingestion_sitadel",
-    description="Sit@del2 — Permis de construire (mensuel)",
-    schedule="0 3 5 * *",  # 5 du mois à 03h00 (lag ~2 mois SDES)
-    start_date=datetime(2024, 1, 1),
-    catchup=False,
-    max_active_runs=1,
-    default_args=_DEFAULT_ARGS,
-    tags=["ingestion", "housing"],
-) as dag_sitadel:
-    PythonOperator(task_id="ingest_sitadel", python_callable=_run_sitadel)
-
-
-# ---------------------------------------------------------------------------
-# ECLN — trimestriel (commercialisation logements neufs)
-# ---------------------------------------------------------------------------
-
-def _run_ecln(**ctx):
-    from include.ingestion.scripts.ecln import run
-    run()
-
-
-with DAG(
-    dag_id="ingestion_ecln",
-    description="ECLN — Commercialisation logements neufs (trimestriel)",
-    schedule="0 3 15 1,4,7,10 *",  # 15 janv / avr / juil / oct à 03h00
-    start_date=datetime(2024, 1, 1),
-    catchup=False,
-    max_active_runs=1,
-    default_args=_DEFAULT_ARGS,
-    tags=["ingestion", "housing"],
-) as dag_ecln:
-    PythonOperator(task_id="ingest_ecln", python_callable=_run_ecln)
-
-
-# ---------------------------------------------------------------------------
-# EPTB — annuel (prix terrains et maisons neuves, publié ~mars)
-# ---------------------------------------------------------------------------
-
-def _run_eptb(**ctx):
-    from include.ingestion.scripts.eptb import run
-    run()
-
-
-with DAG(
-    dag_id="ingestion_eptb",
-    description="EPTB — Prix terrains et maisons neuves (annuel)",
-    schedule="0 5 1 3 *",  # 1er mars à 05h00
-    start_date=datetime(2024, 3, 1),
-    catchup=False,
-    max_active_runs=1,
-    default_args=_DEFAULT_ARGS,
-    tags=["ingestion", "housing"],
-) as dag_eptb:
-    PythonOperator(task_id="ingest_eptb", python_callable=_run_eptb)
-
-
-# ---------------------------------------------------------------------------
-# RPLS — annuel (logements sociaux, millésime publié ~juillet)
-# ---------------------------------------------------------------------------
-
-def _run_rpls(**ctx):
-    from include.ingestion.scripts.rpls import run
-    run()
-
-
-with DAG(
-    dag_id="ingestion_rpls",
-    description="RPLS — Répertoire des logements sociaux (annuel)",
-    schedule="0 5 1 7 *",  # 1er juillet à 05h00
-    start_date=datetime(2024, 7, 1),
-    catchup=False,
-    max_active_runs=1,
-    default_args=_DEFAULT_ARGS,
-    tags=["ingestion", "housing"],
-) as dag_rpls:
-    PythonOperator(task_id="ingest_rpls", python_callable=_run_rpls)
+    # Toutes les tasks sont au même niveau → exécution en parallèle par défaut
