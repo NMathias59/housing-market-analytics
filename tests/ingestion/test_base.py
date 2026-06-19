@@ -11,6 +11,7 @@ import requests
 from include.ingestion.base import (
     WATERMARK_TABLE,
     ensure_watermark_table,
+    fetch_dido_pages,
     fetch_pages,
     get_watermark,
     load_df,
@@ -225,6 +226,82 @@ class TestFetchPages:
         pages = list(fetch_pages("http://api/data", {}))
         assert pages == [[{"id": 1}]]
         assert mock_get.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# fetch_dido_pages  (DiDo: page/pageSize/totalCount)
+# ---------------------------------------------------------------------------
+
+class TestFetchDidoPages:
+    def _payload(self, records: list, total: int) -> dict:
+        return {"data": records, "totalCount": total}
+
+    @patch("include.ingestion.base._get")
+    def test_single_page(self, mock_get):
+        records = [{"id": 1}, {"id": 2}]
+        mock_get.return_value = self._payload(records, 2)
+        pages = list(fetch_dido_pages("http://dido/rows", {}, page_size=100))
+        assert pages == [records]
+        mock_get.assert_called_once()
+
+    @patch("include.ingestion.base._get")
+    def test_multiple_pages(self, mock_get):
+        page1 = [{"id": i} for i in range(3)]
+        page2 = [{"id": i} for i in range(3, 5)]
+        mock_get.side_effect = [
+            self._payload(page1, 5),
+            self._payload(page2, 5),
+        ]
+        pages = list(fetch_dido_pages("http://dido/rows", {}, page_size=3))
+        assert pages == [page1, page2]
+
+    @patch("include.ingestion.base._get")
+    def test_stops_on_empty_data(self, mock_get):
+        mock_get.return_value = self._payload([], 0)
+        pages = list(fetch_dido_pages("http://dido/rows", {}))
+        assert pages == []
+        mock_get.assert_called_once()
+
+    @patch("include.ingestion.base._get")
+    def test_stops_when_page_covers_total(self, mock_get):
+        records = [{"id": i} for i in range(3)]
+        mock_get.return_value = self._payload(records, 3)
+        pages = list(fetch_dido_pages("http://dido/rows", {}, page_size=3))
+        assert len(pages) == 1
+        mock_get.assert_called_once()
+
+    @patch("include.ingestion.base._get")
+    def test_uses_page_and_pagesize_params(self, mock_get):
+        mock_get.return_value = self._payload([], 0)
+        list(fetch_dido_pages("http://dido/rows", {"filters": "annee:gt:2020"}, page_size=500))
+        call_params = mock_get.call_args[0][1]
+        assert call_params["page"] == 1
+        assert call_params["pageSize"] == 500
+        assert call_params["filters"] == "annee:gt:2020"
+
+    @patch("include.ingestion.base._get")
+    def test_page_increments_between_pages(self, mock_get):
+        page1 = [{"id": i} for i in range(2)]
+        page2 = [{"id": i} for i in range(2, 4)]
+        mock_get.side_effect = [
+            self._payload(page1, 4),
+            self._payload(page2, 4),
+        ]
+        list(fetch_dido_pages("http://dido/rows", {}, page_size=2))
+        pages_requested = [c[0][1]["page"] for c in mock_get.call_args_list]
+        assert pages_requested == [1, 2]
+
+    @patch("include.ingestion.base._get")
+    def test_passes_base_params_to_all_pages(self, mock_get):
+        page1 = [{"id": 1}]
+        page2 = [{"id": 2}]
+        mock_get.side_effect = [
+            self._payload(page1, 2),
+            self._payload(page2, 2),
+        ]
+        list(fetch_dido_pages("http://dido/rows", {"filters": "annee:gt:2022"}, page_size=1))
+        for c in mock_get.call_args_list:
+            assert c[0][1]["filters"] == "annee:gt:2022"
 
 
 # ---------------------------------------------------------------------------

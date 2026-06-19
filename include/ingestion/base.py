@@ -143,6 +143,32 @@ def fetch_pages(
             break
 
 
+def fetch_dido_pages(
+    url: str,
+    params: dict[str, Any],
+    *,
+    page_size: int = DEFAULT_PAGE_SIZE,
+) -> Iterator[list[dict]]:
+    """
+    Yield pages from a DiDo API endpoint (1-indexed page-based pagination).
+
+    DiDo response envelope: {"data": [...], "totalCount": N}
+    Stops when an empty page is received or all pages have been fetched.
+    """
+    page = 1
+    while True:
+        payload = _get(url, {**params, "page": page, "pageSize": page_size})
+        records = payload.get("data", [])
+        if not records:
+            break
+        yield records
+        total = payload.get("totalCount", 0)
+        if page * page_size >= total:
+            break
+        page += 1
+        logger.debug("DiDo page %d / %d from %s", page, -(-total // page_size), url)
+
+
 # ---------------------------------------------------------------------------
 # Batch loader
 # ---------------------------------------------------------------------------
