@@ -2,118 +2,101 @@
 
 from __future__ import annotations
 
-import os
 from contextlib import ExitStack
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pandas as pd
 import pytest
 
 from include.ingestion.scripts.eptb import (
-    SOURCE,
-    TABLE,
-    build_params,
-    parse,
-    run,
+    TABLE, _RID_MAISONS, _RID_TERRAINS,
+    _fetch_table, parse, run,
 )
 
 # ---------------------------------------------------------------------------
-# Fixtures
+# Sample data matching DiDo API column names
 # ---------------------------------------------------------------------------
 
-SAMPLE_RECORDS = [
-    {
-        "annee": "2022",
-        "code_commune": "75056",
-        "code_departement": "75",
-        "code_region": "11",
-        "prix_terrain_m2": "310.5",
-        "surface_terrain": "280.0",
-        "prix_construction": "195000.0",
-        "surface_habitable": "115.0",
-        "type_maitre_oeuvre": "particulier",
-        "type_chauffage": "gaz",
-        "csp_acheteur": "cadre",
-    },
-    {
-        "annee": "2023",
-        "code_commune": "69123",
-        "code_departement": "69",
-        "code_region": "84",
-        "prix_terrain_m2": "220.0",
-        "surface_terrain": "400.0",
-        "prix_construction": "180000.0",
-        "surface_habitable": "130.0",
-        "type_maitre_oeuvre": "constructeur",
-        "type_chauffage": "pompe_chaleur",
-        "csp_acheteur": "employe",
-    },
+SAMPLE_TERRAINS = [
+    {"ANNEE": "2024", "ZONE_CODE": "11", "ZONE_LIBELLE": "Île-de-France",
+     "NB_TERRAINS": 150, "PTM2_MOY": 350.0, "PTM2_MED": 320.0,
+     "SURFT_MOY": 650.0, "PT_MOY": 227500.0},
+]
+
+SAMPLE_MAISONS = [
+    {"ANNEE": "2024", "ZONE_CODE": "11", "ZONE_LIBELLE": "Île-de-France",
+     "NB_MAISONS": 120, "PMM2_MOY": 1800.0, "PMM2_MED": 1750.0,
+     "SURFM_MOY": 115.0, "PM_MOY": 207000.0},
 ]
 
 
-def _run_mocked(
-    *,
-    watermark: str | None = None,
-    records: list | None = None,
-    full_refresh: bool = False,
-    dry_run: bool = False,
-    rid: str = "fake-rid-123",
-):
-    """Call run() with all external dependencies mocked. Returns (result, mocks)."""
-    if records is None:
-        records = SAMPLE_RECORDS
+def _df_terrains() -> pd.DataFrame:
+    from include.ingestion.scripts.eptb import _RENAME_TERRAINS
+    return pd.DataFrame(SAMPLE_TERRAINS).rename(columns=_RENAME_TERRAINS)
+
+
+def _df_maisons() -> pd.DataFrame:
+    from include.ingestion.scripts.eptb import _RENAME_MAISONS
+    return pd.DataFrame(SAMPLE_MAISONS).rename(columns=_RENAME_MAISONS)
+
+
+def _run_mocked(*, dry_run: bool = False, df_t=None, df_m=None):
+    if df_t is None:
+        df_t = _df_terrains()
+    if df_m is None:
+        df_m = _df_maisons()
 
     client = MagicMock()
     mocks: dict = {"client": client}
 
     with ExitStack() as stack:
-        stack.enter_context(patch.dict(os.environ, {"EPTB_DIDO_RID": rid}))
         stack.enter_context(
             patch("include.ingestion.scripts.eptb.get_client", return_value=client)
         )
         stack.enter_context(
             patch("include.ingestion.scripts.eptb.ensure_watermark_table")
         )
-        mocks["get_watermark"] = stack.enter_context(
-            patch("include.ingestion.scripts.eptb.get_watermark", return_value=watermark)
-        )
-        mocks["fetch_dido_pages"] = stack.enter_context(
-            patch(
-                "include.ingestion.scripts.eptb.fetch_dido_pages",
-                return_value=iter([records]),
-            )
+        mocks["fetch_table"] = stack.enter_context(
+            patch("include.ingestion.scripts.eptb._fetch_table",
+                  side_effect=[df_t, df_m])
         )
         mocks["load_df"] = stack.enter_context(
-            patch("include.ingestion.scripts.eptb.load_df", return_value=len(records))
+            patch("include.ingestion.scripts.eptb.load_df",
+                  side_effect=lambda c, df, t: len(df))
         )
-        mocks["set_watermark"] = stack.enter_context(
-            patch("include.ingestion.scripts.eptb.set_watermark")
-        )
-
-        result = run(full_refresh=full_refresh, dry_run=dry_run)
+        result = run(dry_run=dry_run)
 
     return result, mocks
 
 
 # ---------------------------------------------------------------------------
-# build_params
+# _fetch_table
 # ---------------------------------------------------------------------------
 
-class TestBuildParams:
-    def test_no_watermark_returns_empty_dict(self):
-        assert build_params(None) == {}
+class TestFetchTable:
+    def test_returns_dataframe(self):
+        pages = [SAMPLE_TERRAINS]
+        from include.ingestion.scripts.eptb import _RENAME_TERRAINS
+        with patch("include.ingestion.scripts.eptb.fetch_dido_pages",
+                   return_value=iter(pages)):
+            df = _fetch_table(_RID_TERRAINS, _RENAME_TERRAINS)
+        assert isinstance(df, pd.DataFrame)
+        assert "zone_code" in df.columns
 
-    def test_with_watermark_adds_gt_filter(self):
-        params = build_params(2022)
-        assert params == {"filters": "annee:gt:2022"}
+    def test_empty_pages_returns_empty_df(self):
+        from include.ingestion.scripts.eptb import _RENAME_TERRAINS
+        with patch("include.ingestion.scripts.eptb.fetch_dido_pages",
+                   return_value=iter([[]])):
+            df = _fetch_table(_RID_TERRAINS, _RENAME_TERRAINS)
+        assert df.empty
 
-    def test_filter_contains_year_value(self):
-        params = build_params(2019)
-        assert "2019" in params["filters"]
-
-    def test_filter_uses_gt_operator(self):
-        params = build_params(2022)
-        assert ":gt:" in params["filters"]
+    def test_renames_columns(self):
+        from include.ingestion.scripts.eptb import _RENAME_TERRAINS
+        with patch("include.ingestion.scripts.eptb.fetch_dido_pages",
+                   return_value=iter([SAMPLE_TERRAINS])):
+            df = _fetch_table(_RID_TERRAINS, _RENAME_TERRAINS)
+        assert "nb_terrains" in df.columns
+        assert "NB_TERRAINS" not in df.columns
 
 
 # ---------------------------------------------------------------------------
@@ -121,67 +104,45 @@ class TestBuildParams:
 # ---------------------------------------------------------------------------
 
 class TestParse:
-    def _record(self, **overrides) -> dict:
-        base = {
-            "annee": "2022",
-            "code_commune": "75056",
-            "code_departement": "75",
-            "code_region": "11",
-            "prix_terrain_m2": "250.5",
-            "surface_terrain": "300.0",
-            "prix_construction": "180000.0",
-            "surface_habitable": "120.0",
-            "type_maitre_oeuvre": "particulier",
-            "type_chauffage": "gaz",
-            "csp_acheteur": "cadre",
-        }
-        base.update(overrides)
-        return base
-
     def test_returns_dataframe(self):
-        assert isinstance(parse([self._record()]), pd.DataFrame)
+        assert isinstance(parse(_df_terrains(), _df_maisons()), pd.DataFrame)
 
-    def test_empty_input_returns_empty_df(self):
-        assert parse([]).empty
+    def test_merges_on_annee_and_zone_code(self):
+        df = parse(_df_terrains(), _df_maisons())
+        assert "nb_terrains" in df.columns
+        assert "nb_maisons" in df.columns
 
-    def test_parses_annee_as_integer(self):
-        df = parse([self._record(annee="2022")])
-        assert df["annee"].iloc[0] == 2022
+    def test_annee_cast_to_int(self):
+        df = parse(_df_terrains(), _df_maisons())
+        assert df["annee"].iloc[0] == 2024
 
-    def test_parses_float_columns(self):
-        df = parse([self._record(prix_terrain_m2="250.5")])
-        assert df["prix_terrain_m2"].iloc[0] == pytest.approx(250.5)
+    def test_float_cols_cast(self):
+        df = parse(_df_terrains(), _df_maisons())
+        assert df["prix_terrain_m2_moy"].iloc[0] == pytest.approx(350.0)
+        assert df["prix_maison_m2_moy"].iloc[0] == pytest.approx(1800.0)
 
-    def test_invalid_numeric_becomes_nan(self):
-        df = parse([self._record(prix_terrain_m2="N/D")])
-        assert pd.isna(df["prix_terrain_m2"].iloc[0])
+    def test_int_cols_cast(self):
+        df = parse(_df_terrains(), _df_maisons())
+        assert df["nb_terrains"].iloc[0] == 150
+        assert df["nb_maisons"].iloc[0] == 120
 
-    def test_null_string_col_becomes_empty_string(self):
-        df = parse([self._record(code_region=None)])
-        assert df["code_region"].iloc[0] == ""
+    def test_zone_code_is_string(self):
+        df = parse(_df_terrains(), _df_maisons())
+        assert df["zone_code"].iloc[0] == "11"
 
-    def test_unknown_columns_are_dropped(self):
-        records = [{**self._record(), "colonne_inconnue": "valeur"}]
-        df = parse(records)
-        assert "colonne_inconnue" not in df.columns
+    def test_both_empty_returns_empty(self):
+        assert parse(pd.DataFrame(), pd.DataFrame()).empty
 
-    def test_partial_columns_no_error(self):
-        df = parse([{"annee": "2021", "code_commune": "33063"}])
-        assert list(df.columns) == ["annee", "code_commune"]
+    def test_outer_join_fills_missing_side(self):
+        other_maisons = _df_maisons().copy()
+        other_maisons["zone_code"] = "76"
+        df = parse(_df_terrains(), other_maisons)
+        assert len(df) == 2
+        assert df[df["zone_code"] == "11"]["nb_maisons"].isna().all()
 
-    def test_multiple_records_correct_row_count(self):
-        df = parse([self._record(annee=str(y)) for y in [2020, 2021, 2022]])
-        assert len(df) == 3
-
-    def test_annee_values_preserved(self):
-        df = parse([self._record(annee=str(y)) for y in [2020, 2021, 2022]])
-        assert list(df["annee"]) == [2020, 2021, 2022]
-
-    def test_does_not_mutate_input_records(self):
-        record = self._record()
-        original_keys = set(record.keys())
-        parse([record])
-        assert set(record.keys()) == original_keys
+    def test_zone_libelle_is_string(self):
+        df = parse(_df_terrains(), _df_maisons())
+        assert df["zone_libelle"].iloc[0] == "Île-de-France"
 
 
 # ---------------------------------------------------------------------------
@@ -189,63 +150,33 @@ class TestParse:
 # ---------------------------------------------------------------------------
 
 class TestRun:
-    def test_raises_if_dido_rid_not_set(self):
-        with patch.dict(os.environ, {}, clear=True):
-            os.environ.pop("EPTB_DIDO_RID", None)
-            with pytest.raises(EnvironmentError, match="EPTB_DIDO_RID"):
-                run()
-
-    def test_full_refresh_skips_get_watermark(self):
-        _, mocks = _run_mocked(watermark="2021", full_refresh=True)
-        mocks["get_watermark"].assert_not_called()
-
-    def test_incremental_reads_watermark(self):
-        _, mocks = _run_mocked(watermark="2021")
-        mocks["get_watermark"].assert_called_once_with(mocks["client"], SOURCE)
-
-    def test_incremental_passes_year_filter_to_api(self):
-        _, mocks = _run_mocked(watermark="2021")
-        call_params = mocks["fetch_dido_pages"].call_args[0][1]
-        assert "2021" in call_params.get("filters", "")
-
-    def test_full_refresh_sends_no_filter(self):
-        _, mocks = _run_mocked(watermark="2021", full_refresh=True)
-        call_params = mocks["fetch_dido_pages"].call_args[0][1]
-        assert call_params == {}
-
-    def test_creates_raw_table_on_startup(self):
+    def test_creates_table_on_startup(self):
         _, mocks = _run_mocked()
-        mocks["client"].command.assert_called_once()
         sql = mocks["client"].command.call_args[0][0]
         assert "CREATE TABLE IF NOT EXISTS" in sql
         assert TABLE in sql
 
-    def test_watermark_set_to_max_year_after_insert(self):
-        _, mocks = _run_mocked(watermark=None)
-        mocks["set_watermark"].assert_called_once_with(mocks["client"], SOURCE, "2023")
-
-    def test_watermark_not_updated_on_dry_run(self):
-        _, mocks = _run_mocked(dry_run=True)
-        mocks["set_watermark"].assert_not_called()
+    def test_fetches_both_rids(self):
+        _, mocks = _run_mocked()
+        called_rids = [c[0][0] for c in mocks["fetch_table"].call_args_list]
+        assert _RID_TERRAINS in called_rids
+        assert _RID_MAISONS in called_rids
 
     def test_dry_run_skips_insert(self):
-        _, mocks = _run_mocked(dry_run=True)
+        result, mocks = _run_mocked(dry_run=True)
+        assert result == 0
         mocks["load_df"].assert_not_called()
 
-    def test_dry_run_returns_zero(self):
-        result, _ = _run_mocked(dry_run=True)
-        assert result == 0
+    def test_inserts_merged_data(self):
+        result, mocks = _run_mocked()
+        assert result == 1
+        mocks["load_df"].assert_called_once()
 
-    def test_returns_total_inserted_rows(self):
+    def test_no_watermark_env_var_needed(self):
+        """EPTB has no env var requirement — RIDs are hardcoded."""
         result, _ = _run_mocked()
-        assert result == len(SAMPLE_RECORDS)
+        assert result >= 0
 
-    def test_watermark_not_updated_when_no_data(self):
-        _, mocks = _run_mocked(records=[])
-        mocks["set_watermark"].assert_not_called()
-
-    def test_endpoint_built_from_rid(self):
-        _, mocks = _run_mocked(rid="my-custom-rid")
-        endpoint_called = mocks["fetch_dido_pages"].call_args[0][0]
-        assert "my-custom-rid" in endpoint_called
-        assert endpoint_called.endswith("/rows")
+    def test_empty_terrains_returns_zero(self):
+        result, _ = _run_mocked(df_t=pd.DataFrame(), df_m=pd.DataFrame())
+        assert result == 0
