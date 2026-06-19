@@ -1,1 +1,7 @@
 astronomer-cosmos==1.10.0
+clickhouse-connect>=0.7
+requests>=2.32
+pandas>=2.2
+tenacity>=8.2
+python-dotenv>=1.0
+tqdm>=4.66
