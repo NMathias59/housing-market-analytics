@@ -3,7 +3,7 @@ Ingestion incrémentale DPE — Diagnostics de Performance Énergétique.
 
 Source    : ADEME / data-fair REST API
            GET https://data.ademe.fr/data-fair/api/v1/datasets/dpe03existant/lines
-Table     : db_wh_housing_raw.raw_dpe
+Table     : db_wh_housing.raw_dpe
 Watermark : date ISO YYYY-MM-DD (dernière date_etablissement_dpe chargée)
 
 Stratégie incrémentale :
@@ -67,7 +67,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 SOURCE = "dpe"
-TABLE = "db_wh_housing_raw.raw_dpe"
+TABLE = "db_wh_housing.raw_dpe"
 
 _API_URL = "https://data.ademe.fr/data-fair/api/v1/datasets/dpe03existant/lines"
 _PAGE_SIZE = 10_000

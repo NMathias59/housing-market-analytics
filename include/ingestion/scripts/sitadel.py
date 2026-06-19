@@ -2,7 +2,7 @@
 Ingestion incrémentale Sit@del2 — Autorisations et mises en chantier.
 
 Source    : SDES / API DiDo v1
-Table     : db_wh_housing_raw.raw_sitadel
+Table     : db_wh_housing.raw_sitadel
 Granularité : mensuelle × commune (28,5 M lignes)
 Watermark : "YYYY-MM" (dernier mois entièrement chargé)
 
@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 SOURCE = "sitadel"
-TABLE = "db_wh_housing_raw.raw_sitadel"
+TABLE = "db_wh_housing.raw_sitadel"
 _DIDO_BASE = "https://data.statistiques.developpement-durable.gouv.fr/dido/api/v1"
 _RID = "577a8a66-4157-4787-b00a-031b61afea61"
 

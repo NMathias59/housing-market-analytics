@@ -2,7 +2,7 @@
 Ingestion incrémentale DVF — Demandes de Valeurs Foncières.
 
 Source    : DGFiP / data.gouv.fr (geo-dvf, fichiers CSV.GZ annuels)
-Table     : db_wh_housing_raw.raw_dvf
+Table     : db_wh_housing.raw_dvf
 Watermark : annee (dernière année entièrement chargée)
 
 Les fichiers DVF sont volumineux (>1 Go/an décompressé). Le script :
@@ -56,7 +56,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 SOURCE = "dvf"
-TABLE = "db_wh_housing_raw.raw_dvf"
+TABLE = "db_wh_housing.raw_dvf"
 CHUNK_SIZE = 50_000
 
 _DVF_BASE_URL = os.environ.get(

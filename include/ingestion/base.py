@@ -24,7 +24,7 @@ from tenacity import (
 
 logger = logging.getLogger(__name__)
 
-RAW_DB = "db_wh_housing_raw"
+RAW_DB = "db_wh_housing"
 WATERMARK_TABLE = f"{RAW_DB}._ingestion_watermarks"
 DEFAULT_PAGE_SIZE = 1_000
 
