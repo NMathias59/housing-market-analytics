@@ -2,7 +2,7 @@
 Ingestion incrémentale INSEE — Revenus et démographie par commune.
 
 Source    : INSEE / fichiers CSV annuels millésimés
-Table     : db_logement_raw.raw_insee_communes
+Table     : db_wh_logement_raw.raw_insee_communes
 Watermark : annee (dernière année chargée)
 
 Env vars requis :
@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 SOURCE = "insee_communes"
-TABLE = "db_logement_raw.raw_insee_communes"
+TABLE = "db_wh_logement_raw.raw_insee_communes"
 CHUNK_SIZE = 10_000
 
 # Données INSEE disponibles avec ~18 mois de décalage

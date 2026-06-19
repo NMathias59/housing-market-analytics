@@ -2,7 +2,7 @@
 Ingestion incrémentale Macro — Taux immobiliers (Banque de France).
 
 Source    : Banque de France / fichier CSV série temporelle mensuelle
-Table     : db_logement_raw.raw_macro_taux
+Table     : db_wh_logement_raw.raw_macro_taux
 Watermark : date (dernière période chargée au format YYYY-MM, ex. "2024-11")
 
 Le fichier est petit (~300 lignes). Le filtrage incrémental se fait côté client
@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 SOURCE = "macro_taux"
-TABLE = "db_logement_raw.raw_macro_taux"
+TABLE = "db_wh_logement_raw.raw_macro_taux"
 
 DDL = f"""
     CREATE TABLE IF NOT EXISTS {TABLE}
