@@ -1,17 +1,19 @@
 """
-DAG d'ingestion dynamique — marché immobilier français.
+DAG housing — ingestion + transformation dbt.
 
-Toutes les sources sont ingérées en parallèle dans db_wh_housing.
-La cadence est mensuelle ; les sources trimestrielles/annuelles
-retournent immédiatement "déjà à jour" grâce aux watermarks.
+Toutes les sources sont ingérées dans db_wh_housing, puis le projet dbt
+housing est exécuté (staging → intermediate → core → rpt).
 
-Sources :
+Ingestion :
     dvf      — Demandes de Valeurs Foncières (DGFiP)
     dpe      — Diagnostics de Performance Énergétique (ADEME)
     sitadel  — Permis de construire Sit@del2 (SDES/DiDo)
     ecln     — Commercialisation logements neufs (SDES/DiDo)
     eptb     — Prix terrains et maisons neuves (SDES/DiDo)
     rpls     — Répertoire des logements sociaux (SDES/DiDo)
+
+Transformation (via Cosmos) :
+    dbt build sur dbt/housing → 22 modèles (staging, intermediate, core, rpt)
 """
 
 from __future__ import annotations
@@ -19,10 +21,15 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from airflow import DAG
+from cosmos import DbtTaskGroup, ProjectConfig, RenderConfig
+from cosmos.constants import LoadMode
+
 try:
     from airflow.providers.standard.operators.python import PythonOperator
 except ImportError:
     from airflow.operators.python import PythonOperator
+
+from include.constants import housing_path, housing_profile_config, venv_execution_config
 
 # ---------------------------------------------------------------------------
 # Config des sources — ajouter une ligne pour brancher une nouvelle source
@@ -123,3 +130,14 @@ with DAG(
         if dido_tasks:
             dido_tasks[-1] >> task
         dido_tasks.append(task)
+
+    # Transformation dbt — démarre quand toute l'ingestion est terminée
+    dbt_transform = DbtTaskGroup(
+        group_id="transform_housing",
+        project_config=ProjectConfig(housing_path),
+        profile_config=housing_profile_config,
+        execution_config=venv_execution_config,
+        render_config=RenderConfig(load_method=LoadMode.DBT_LS),
+    )
+
+    [*parallel_tasks, dido_tasks[-1]] >> dbt_transform
