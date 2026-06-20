@@ -18,6 +18,7 @@ import requests
 from tenacity import (
     retry,
     retry_any,
+    retry_if_exception,
     retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
@@ -34,6 +35,16 @@ DEFAULT_PAGE_SIZE = 1_000
 # ClickHouse client
 # ---------------------------------------------------------------------------
 
+def _is_ch_connection_error(exc: BaseException) -> bool:
+    return any("Connection refused" in str(e) for e in (exc, exc.__cause__, exc.__context__) if e)
+
+
+@retry(
+    retry=retry_if_exception(_is_ch_connection_error),
+    stop=stop_after_attempt(6),
+    wait=wait_exponential(multiplier=2, min=10, max=120),
+    reraise=True,
+)
 def get_client():
     """Return a ClickHouse client configured from environment variables."""
     import clickhouse_connect  # local import — optional dep at module level
