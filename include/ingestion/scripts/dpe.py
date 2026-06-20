@@ -17,11 +17,11 @@ Colonnes API → schéma cible :
   code_insee_ban                       → code_commune
   etiquette_dpe                        → etiquette_dpe
   conso_5_usages_par_m2_ep             → consommation_energie_primaire
-  conso_5_usages_finale_energie_ar     → consommation_energie_finale
+  conso_5_usages_par_m2_ef             → consommation_energie_finale
   emission_ges_5_usages_par_m2         → emission_ges
   type_energie_principale_chauffage    → type_energie_principale_chauffage
   type_installation_chauffage          → type_installation_chauffage
-  surface_habitable_logement           → surface_habitable_logement
+  surface_habitable_immeuble           → surface_habitable_logement
   periode_construction                 → periode_construction (String)
   type_batiment                        → type_batiment
   (code_departement dérivé depuis code_commune)
@@ -103,11 +103,11 @@ _RENAME_MAP = {
     "code_insee_ban":                   "code_commune",
     "etiquette_dpe":                    "etiquette_dpe",
     "conso_5_usages_par_m2_ep":         "consommation_energie_primaire",
-    "conso_5_usages_finale_energie_ar": "consommation_energie_finale",
+    "conso_5_usages_par_m2_ef":         "consommation_energie_finale",
     "emission_ges_5_usages_par_m2":     "emission_ges",
     "type_energie_principale_chauffage":"type_energie_principale_chauffage",
     "type_installation_chauffage":       "type_installation_chauffage",
-    "surface_habitable_logement":        "surface_habitable_logement",
+    "surface_habitable_immeuble":        "surface_habitable_logement",
     "periode_construction":              "periode_construction",
     "type_batiment":                     "type_batiment",
 }
@@ -219,7 +219,7 @@ def run(
 
     params: dict = {
         "select": ",".join(_API_FIELDS),
-        "sort": "date_etablissement_dpe:asc",
+        "sort": "date_etablissement_dpe",
     }
     if not full_refresh:
         start = _since_date(watermark)

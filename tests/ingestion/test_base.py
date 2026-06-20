@@ -207,13 +207,13 @@ class TestFetchPages:
 
     @patch("time.sleep")
     @patch("requests.get")
-    def test_retries_five_times_on_http_error(self, mock_get, mock_sleep):
+    def test_retries_on_http_error(self, mock_get, mock_sleep):
         error_response = MagicMock()
         error_response.raise_for_status.side_effect = requests.HTTPError("503")
         mock_get.return_value = error_response
         with pytest.raises(requests.HTTPError):
             list(fetch_pages("http://api/data", {}))
-        assert mock_get.call_count == 5
+        assert mock_get.call_count == 8  # stop_after_attempt(8)
 
     @patch("time.sleep")
     @patch("requests.get")
@@ -306,17 +306,17 @@ class TestFetchDidoPages:
 
 
 # ---------------------------------------------------------------------------
-# fetch_ademe_pages  (ADEME data-fair: page/size/results/total)
+# fetch_ademe_pages  (ADEME data-fair: cursor/"next" pagination)
 # ---------------------------------------------------------------------------
 
 class TestFetchAdemePages:
-    def _payload(self, records: list, total: int) -> dict:
-        return {"results": records, "total": total}
+    def _payload(self, records: list, next_url: str | None = None) -> dict:
+        return {"results": records, "next": next_url}
 
     @patch("include.ingestion.base._get")
     def test_single_page(self, mock_get):
         records = [{"id": 1}, {"id": 2}]
-        mock_get.return_value = self._payload(records, 2)
+        mock_get.return_value = self._payload(records)
         pages = list(fetch_ademe_pages("http://ademe/lines", {}, page_size=100))
         assert pages == [records]
         mock_get.assert_called_once()
@@ -326,39 +326,49 @@ class TestFetchAdemePages:
         page1 = [{"id": i} for i in range(3)]
         page2 = [{"id": i} for i in range(3, 5)]
         mock_get.side_effect = [
-            self._payload(page1, 5),
-            self._payload(page2, 5),
+            self._payload(page1, "http://ademe/cursor/2"),
+            self._payload(page2),
         ]
         pages = list(fetch_ademe_pages("http://ademe/lines", {}, page_size=3))
         assert pages == [page1, page2]
 
     @patch("include.ingestion.base._get")
     def test_stops_on_empty_results(self, mock_get):
-        mock_get.return_value = self._payload([], 0)
+        mock_get.return_value = self._payload([])
         pages = list(fetch_ademe_pages("http://ademe/lines", {}))
         assert pages == []
         mock_get.assert_called_once()
 
     @patch("include.ingestion.base._get")
-    def test_uses_page_and_size_params(self, mock_get):
-        mock_get.return_value = self._payload([], 0)
+    def test_first_call_includes_size_and_base_params(self, mock_get):
+        mock_get.return_value = self._payload([])
         list(fetch_ademe_pages("http://ademe/lines", {"qs": "annee:2023"}, page_size=5000))
-        call_params = mock_get.call_args[0][1]
-        assert call_params["page"] == 1
-        assert call_params["size"] == 5000
-        assert call_params["qs"] == "annee:2023"
+        first_call_params = mock_get.call_args_list[0][0][1]
+        assert first_call_params["size"] == 5000
+        assert first_call_params["qs"] == "annee:2023"
 
     @patch("include.ingestion.base._get")
-    def test_page_increments_between_pages(self, mock_get):
-        page1 = [{"id": i} for i in range(2)]
-        page2 = [{"id": i} for i in range(2, 4)]
+    def test_second_call_follows_cursor_url(self, mock_get):
+        page1 = [{"id": 1}]
+        cursor_url = "http://ademe/cursor?after=abc123"
         mock_get.side_effect = [
-            self._payload(page1, 4),
-            self._payload(page2, 4),
+            self._payload(page1, cursor_url),
+            self._payload([]),
         ]
-        list(fetch_ademe_pages("http://ademe/lines", {}, page_size=2))
-        pages_requested = [c[0][1]["page"] for c in mock_get.call_args_list]
-        assert pages_requested == [1, 2]
+        list(fetch_ademe_pages("http://ademe/lines", {}, page_size=1))
+        second_call_url = mock_get.call_args_list[1][0][0]
+        assert second_call_url == cursor_url
+
+    @patch("include.ingestion.base._get")
+    def test_second_call_has_no_extra_params(self, mock_get):
+        page1 = [{"id": 1}]
+        mock_get.side_effect = [
+            self._payload(page1, "http://ademe/cursor"),
+            self._payload([]),
+        ]
+        list(fetch_ademe_pages("http://ademe/lines", {"qs": "x"}, page_size=1))
+        second_call_params = mock_get.call_args_list[1][0][1]
+        assert second_call_params == {}
 
 
 # ---------------------------------------------------------------------------

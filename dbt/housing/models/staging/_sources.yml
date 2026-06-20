@@ -1,0 +1,62 @@
+version: 2
+
+sources:
+  - name: raw
+    database: db_wh_housing
+    schema: db_wh_housing
+    description: "Tables brutes chargées par le pipeline d'ingestion Airflow."
+    tables:
+      - name: raw_dvf
+        description: "Demandes de Valeurs Foncières — DGFiP, 2021 à aujourd'hui."
+        columns:
+          - name: id_mutation
+            description: "Identifiant de la transaction (partagé entre lots d'une même vente)."
+          - name: id_parcelle
+            description: "Identifiant parcellaire cadastral."
+          - name: date_mutation
+            description: "Date de l'acte notarié."
+          - name: valeur_fonciere
+            description: "Prix de vente total de la transaction (tous lots confondus), en euros."
+          - name: surface_reelle_bati
+            description: "Surface habitable du lot, en m²."
+          - name: type_local
+            description: "Nature du bien : Appartement, Maison, Local industriel…"
+
+      - name: raw_dpe
+        description: "Diagnostics de Performance Énergétique — ADEME."
+        columns:
+          - name: numero_dpe
+            description: "Identifiant unique du certificat DPE."
+          - name: date_etablissement_dpe
+            description: "Date de réalisation du diagnostic."
+          - name: etiquette_dpe
+            description: "Étiquette énergétique (A à G)."
+
+      - name: raw_sitadel
+        description: "Autorisations et mises en chantier Sit@del2 — SDES/DiDo."
+        columns:
+          - name: annee
+            description: "Année de la donnée."
+          - name: mois
+            description: "Mois de la donnée (1–12)."
+          - name: type_logement
+            description: "Catégorie de logement."
+
+      - name: raw_ecln
+        description: "Commercialisation de logements neufs — SDES/DiDo."
+        columns:
+          - name: annee
+            description: "Année de la donnée."
+          - name: trimestre
+            description: "Trimestre (1–4)."
+
+      - name: raw_eptb
+        description: "Prix des terrains à bâtir et maisons neuves — SDES/DiDo."
+
+      - name: raw_rpls
+        description: "Répertoire des logements sociaux — SDES/DiDo."
+        columns:
+          - name: annee
+            description: "Millésime de l'enquête."
+          - name: financement
+            description: "Type de financement (PLAI, PLUS, PLS…)."

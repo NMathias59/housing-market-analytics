@@ -97,16 +97,12 @@ class TestGetMillesimes:
                 ],
             }]
         }
-        with patch("include.ingestion.scripts.rpls.requests.get") as mock_get:
-            mock_get.return_value.json.return_value = fake_data
-            mock_get.return_value.raise_for_status = lambda: None
+        with patch("include.ingestion.scripts.rpls.get_json", return_value=fake_data):
             mils = get_millesimes()
         assert mils == ["2022-01", "2023-01", "2024-01"]
 
     def test_returns_empty_when_rid_not_found(self):
-        with patch("include.ingestion.scripts.rpls.requests.get") as mock_get:
-            mock_get.return_value.json.return_value = {"datafiles": []}
-            mock_get.return_value.raise_for_status = lambda: None
+        with patch("include.ingestion.scripts.rpls.get_json", return_value={"datafiles": []}):
             mils = get_millesimes()
         assert mils == []
 

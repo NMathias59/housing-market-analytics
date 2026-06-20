@@ -1,0 +1,59 @@
+version: 2
+
+models:
+  - name: int_rpls_commune
+    description: >
+      Agrégation RPLS par commune et millésime. Proxy de la présence et de la
+      qualité du parc de logements sociaux dans chaque commune. Une ligne par
+      (annee, code_commune).
+    columns:
+      - name: annee
+        tests:
+          - not_null
+      - name: code_commune
+        tests:
+          - not_null
+      - name: nb_entrees_ls
+        description: "Nombre de types de financement recensés (proxy de présence HLM)."
+      - name: pct_passoires_ls
+        description: "% de logements sociaux en classe F ou G."
+
+  - name: int_sitadel_commune
+    description: >
+      Sit@del2 agrégée mensuellement en cumul annuel par commune. Mesure le
+      dynamisme de la construction neuve (autorisations et mises en chantier).
+      Filtrée sur 'Tous Logements' pour éviter les doublons. Une ligne par
+      (annee, code_commune).
+    columns:
+      - name: annee
+        tests:
+          - not_null
+      - name: code_commune
+        tests:
+          - not_null
+      - name: nb_autorises
+        description: "Total annuel de logements autorisés (permis de construire)."
+      - name: nb_commences
+        description: "Total annuel de logements mis en chantier."
+      - name: taux_concretisation
+        description: "% de logements commencés sur logements autorisés."
+
+  - name: int_ecln_dept_annee
+    description: >
+      ECLN (commercialisation de logements neufs) agrégée trimestriellement en
+      annuel par département. Reflète la tension du marché du neuf : prix,
+      stock, et taux de réservation. Filtrée sur 'Tous logements'. Une ligne par
+      (annee, code_departement).
+    columns:
+      - name: annee
+        tests:
+          - not_null
+      - name: code_departement
+        tests:
+          - not_null
+      - name: prix_m2_neuf_moy
+        description: "Prix moyen au m² des logements neufs sur l'année (moyenne des trimestres)."
+      - name: taux_reservation
+        description: "% de réservations sur mises en vente annuelles."
+      - name: nb_trimestres
+        description: "Nombre de trimestres disponibles pour l'annualisation (max 4)."

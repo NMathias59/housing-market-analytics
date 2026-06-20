@@ -1,0 +1,100 @@
+version: 2
+
+models:
+  - name: stg_dvf
+    description: >
+      Transactions immobilières DGFiP (DVF). Une ligne par lot impliqué dans
+      une mutation. La clé naturelle est (id_mutation, id_parcelle, type_local).
+    columns:
+      - name: id_mutation
+        description: "Identifiant de la transaction (partagé entre plusieurs lots)."
+      - name: id_parcelle
+        description: "Identifiant cadastral de la parcelle."
+      - name: date_mutation
+        description: "Date de l'acte notarié."
+        tests:
+          - not_null
+      - name: annee
+        description: "Année extraite de date_mutation."
+        tests:
+          - not_null
+      - name: valeur_fonciere
+        description: "Prix de vente total de la transaction en euros."
+      - name: type_local
+        description: "Nature du bien (Appartement, Maison, …). NULL pour les terrains."
+      - name: code_departement
+        tests:
+          - not_null
+
+  - name: stg_dpe
+    description: >
+      Diagnostics de Performance Énergétique ADEME. Une ligne par certificat.
+      Clé naturelle : numero_dpe.
+    columns:
+      - name: numero_dpe
+        description: "Identifiant unique du certificat DPE."
+        tests:
+          - not_null
+          - unique
+      - name: date_etablissement_dpe
+        tests:
+          - not_null
+      - name: etiquette_dpe
+        description: "Classe énergétique de A (très performant) à G (passoire)."
+        tests:
+          - accepted_values:
+              values: ['A', 'B', 'C', 'D', 'E', 'F', 'G']
+      - name: code_departement
+        tests:
+          - not_null
+
+  - name: stg_sitadel
+    description: >
+      Autorisations et mises en chantier Sit@del2 (SDES). Granularité mensuelle
+      par commune et type de logement.
+    columns:
+      - name: annee
+        tests:
+          - not_null
+      - name: mois
+        tests:
+          - not_null
+      - name: code_commune
+        tests:
+          - not_null
+
+  - name: stg_ecln
+    description: >
+      Commercialisation de logements neufs (SDES). Données trimestrielles
+      par département et type de logement.
+    columns:
+      - name: annee
+        tests:
+          - not_null
+      - name: trimestre
+        tests:
+          - not_null
+      - name: code_departement
+        tests:
+          - not_null
+
+  - name: stg_eptb
+    description: >
+      Prix des terrains à bâtir et des maisons neuves (SDES). Données annuelles
+      par zone géographique.
+    columns:
+      - name: annee
+        tests:
+          - not_null
+
+  - name: stg_rpls
+    description: >
+      Répertoire des Logements Sociaux (SDES). Un agrégat par commune,
+      type de financement et millésime.
+    columns:
+      - name: annee
+        tests:
+          - not_null
+      - name: code_commune
+        tests:
+          - not_null

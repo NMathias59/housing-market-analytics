@@ -129,9 +129,9 @@ class TestBuildFileUrl:
 # ---------------------------------------------------------------------------
 
 class TestYearsToLoad:
-    def test_full_load_starts_from_2014(self):
+    def test_full_load_starts_from_2021(self):
         years = _years_to_load(None, 2023)
-        assert years[0] == 2014
+        assert years[0] == 2021
         assert years[-1] == 2023
 
     def test_incremental_starts_after_watermark(self):

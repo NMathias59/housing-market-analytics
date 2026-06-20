@@ -25,11 +25,11 @@ def _records(**overrides) -> list[dict]:
         "code_insee_ban":                   "75056",
         "etiquette_dpe":                    "C",
         "conso_5_usages_par_m2_ep":         145.2,
-        "conso_5_usages_finale_energie_ar": 98.5,
+        "conso_5_usages_par_m2_ef":         98.5,
         "emission_ges_5_usages_par_m2":     28.0,
         "type_energie_principale_chauffage":"gaz naturel",
         "type_installation_chauffage":       "individuel",
-        "surface_habitable_logement":        72.5,
+        "surface_habitable_immeuble":        72.5,
         "periode_construction":              "1975-1977",
         "type_batiment":                     "appartement",
     }
@@ -141,7 +141,7 @@ class TestParse:
         assert df["consommation_energie_primaire"].iloc[0] == pytest.approx(180.5)
 
     def test_renames_conso_energie_finale(self):
-        df = parse(_records(conso_5_usages_finale_energie_ar=120.0))
+        df = parse(_records(conso_5_usages_par_m2_ef=120.0))
         assert df["consommation_energie_finale"].iloc[0] == pytest.approx(120.0)
 
     def test_renames_emission_ges(self):
@@ -217,7 +217,7 @@ class TestRun:
     def test_sort_ascending_by_date(self):
         _, mocks = _run_mocked()
         params = mocks["fetch_ademe_pages"].call_args[0][1]
-        assert params.get("sort") == "date_etablissement_dpe:asc"
+        assert params.get("sort") == "date_etablissement_dpe"
 
     def test_watermark_updated_after_each_page(self):
         _, mocks = _run_mocked()

@@ -39,12 +39,12 @@ import argparse
 import logging
 
 import pandas as pd
-import requests
 from dotenv import load_dotenv
 
 from include.ingestion.base import (
     ensure_watermark_table,
     get_client,
+    get_json,
     get_watermark,
     iter_csv_chunks,
     load_df,
@@ -112,9 +112,7 @@ _STRING_COLS = ["code_commune", "code_departement", "code_region",
 
 def get_millesimes() -> list[str]:
     """Return available millesimes for the RPLS datafile, sorted ascending."""
-    r = requests.get(f"{_DIDO_BASE}/datasets/{_DATASET_ID}", timeout=15)
-    r.raise_for_status()
-    data = r.json()
+    data = get_json(f"{_DIDO_BASE}/datasets/{_DATASET_ID}")
     for df_info in data.get("datafiles", []):
         if df_info.get("rid") == _RID:
             return sorted(m["millesime"] for m in df_info.get("millesimes", []))

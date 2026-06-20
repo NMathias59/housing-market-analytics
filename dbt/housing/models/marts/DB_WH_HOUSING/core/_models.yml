@@ -1,0 +1,155 @@
+version: 2
+
+models:
+  - name: fct_transactions
+    description: >
+      Transactions immobilières DVF avec prix au m² calculé. Périmètre : lots
+      bâtis avec surface et prix renseignés (appartements, maisons, locaux).
+      Granularité : un lot par ligne.
+    columns:
+      - name: id_mutation
+        description: "Identifiant de la transaction DGFiP."
+        tests:
+          - not_null
+      - name: date_mutation
+        tests:
+          - not_null
+      - name: prix_m2
+        description: "Prix de vente divisé par la surface du lot, en €/m²."
+        tests:
+          - not_null
+      - name: type_local
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Appartement', 'Maison', 'Local industriel. commercial ou assimilé',
+                       'Dépendance']
+      - name: code_departement
+        tests:
+          - not_null
+
+  - name: dim_commune
+    description: >
+      Référentiel des communes françaises. Dérivé de stg_dvf (nom, département,
+      code postal) enrichi du code région via stg_rpls. Une ligne par code_commune.
+    columns:
+      - name: code_commune
+        tests:
+          - not_null
+          - unique
+      - name: nom_commune
+        tests:
+          - not_null
+      - name: code_departement
+        tests:
+          - not_null
+
+  - name: dim_departement
+    description: >
+      Référentiel des départements français avec libellés officiels SDES.
+      Dérivé de stg_ecln. Une ligne par code_departement.
+    columns:
+      - name: code_departement
+        tests:
+          - not_null
+          - unique
+      - name: libelle_departement
+        tests:
+          - not_null
+
+  - name: fct_construction
+    description: >
+      Activité de construction neuve par commune et année (cumul 12 mois).
+      Source Sit@del2, filtrée 'Tous Logements'. Grain : (annee, code_commune).
+    columns:
+      - name: annee
+        tests:
+          - not_null
+      - name: code_commune
+        tests:
+          - not_null
+      - name: nb_autorises
+        description: "Total annuel de logements autorisés (permis de construire)."
+      - name: taux_concretisation
+        description: "% de logements commencés sur logements autorisés."
+
+  - name: fct_marche_neuf
+    description: >
+      Commercialisation de logements neufs par département et trimestre.
+      Source ECLN, filtrée 'Tous logements'. Grain : (annee, trimestre, code_departement).
+    columns:
+      - name: annee
+        tests:
+          - not_null
+      - name: trimestre
+        tests:
+          - not_null
+      - name: code_departement
+        tests:
+          - not_null
+      - name: prix_m2_neuf
+        description: "Prix moyen au m² des logements neufs pour le trimestre."
+      - name: taux_reservation
+        description: "% de réservations sur mises en vente du trimestre."
+
+  - name: fct_logement_social
+    description: >
+      Parc de logements sociaux par commune et millésime RPLS. Agrégation de
+      stg_rpls par (annee, code_commune). Grain : (annee, code_commune).
+    columns:
+      - name: annee
+        tests:
+          - not_null
+      - name: code_commune
+        tests:
+          - not_null
+      - name: pct_passoires_ls
+        description: "% de logements sociaux en classe F ou G."
+
+  - name: fct_prix_terrain
+    description: >
+      Prix des terrains à bâtir et maisons neuves par zone géographique et année.
+      Source EPTB (SDES). Grain : (annee, zone_code).
+    columns:
+      - name: annee
+        tests:
+          - not_null
+      - name: zone_code
+        tests:
+          - not_null
+
+  - name: fct_transactions_enriched
+    description: >
+      Table ML-ready : chaque transaction DVF enrichie de ses contextes communaux
+      et départementaux. Jointure de fct_transactions avec fct_dpe_commune,
+      int_rpls_commune, int_sitadel_commune et int_ecln_dept_annee.
+      Grain : un lot par ligne (identique à fct_transactions).
+    columns:
+      - name: id_mutation
+        tests:
+          - not_null
+      - name: prix_m2
+        description: "Variable cible ML : prix de vente / surface du lot, en €/m²."
+        tests:
+          - not_null
+      - name: code_departement
+        tests:
+          - not_null
+
+  - name: fct_dpe_commune
+    description: >
+      Agrégation des DPE par commune et année. Distributions d'étiquettes,
+      pourcentage de passoires thermiques et consommations moyennes.
+      Utilisé pour enrichir les transactions avec le contexte énergétique local.
+    columns:
+      - name: annee
+        tests:
+          - not_null
+      - name: code_commune
+        tests:
+          - not_null
+      - name: nb_dpe_total
+        tests:
+          - not_null
+      - name: pct_passoires_thermiques
+        description: "% de logements en classe F ou G dans la commune pour l'année."

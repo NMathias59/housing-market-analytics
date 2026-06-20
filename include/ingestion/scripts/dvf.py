@@ -89,7 +89,7 @@ DDL = f"""
         _loaded_at                DateTime DEFAULT now()
     )
     ENGINE = ReplacingMergeTree(_loaded_at)
-    ORDER BY (annee, code_commune, id_mutation)
+    ORDER BY (annee, code_commune, id_mutation, id_parcelle, type_local)
     SETTINGS allow_nullable_key = 1
 """
 
@@ -157,7 +157,7 @@ def parse(chunk: pd.DataFrame) -> pd.DataFrame:
 
 def _years_to_load(since_year: int | None, target_year: int) -> list[int]:
     """Return the list of years to fetch, from watermark+1 to target_year."""
-    start = (since_year + 1) if since_year is not None else 2014
+    start = (since_year + 1) if since_year is not None else 2021
     return list(range(start, target_year + 1))
 
 

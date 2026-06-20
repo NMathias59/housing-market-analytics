@@ -17,6 +17,7 @@ import pandas as pd
 import requests
 from tenacity import (
     retry,
+    retry_any,
     retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
@@ -98,15 +99,24 @@ def set_watermark(client, source: str, value: str) -> None:
 # ---------------------------------------------------------------------------
 
 @retry(
-    retry=retry_if_exception_type(requests.HTTPError),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential(multiplier=1, min=2, max=60),
+    retry=retry_any(
+        retry_if_exception_type(requests.HTTPError),
+        retry_if_exception_type(requests.ConnectionError),
+        retry_if_exception_type(requests.Timeout),
+    ),
+    stop=stop_after_attempt(8),
+    wait=wait_exponential(multiplier=2, min=5, max=120),
     reraise=True,
 )
 def _get(url: str, params: dict[str, Any]) -> dict:
     response = requests.get(url, params=params, timeout=90)
     response.raise_for_status()
     return response.json()
+
+
+def get_json(url: str, params: dict[str, Any] | None = None) -> dict:
+    """HTTP GET with automatic retry on 429/5xx, returns parsed JSON."""
+    return _get(url, params or {})
 
 
 def fetch_pages(
@@ -180,21 +190,27 @@ def fetch_ademe_pages(
     """
     Yield pages from an ADEME data-fair REST API endpoint.
 
-    ADEME response envelope: {"total": N, "results": [...]}
-    Uses page (1-indexed) + size parameters.
+    ADEME response envelope: {"total": N, "results": [...], "next": "<url>"}
+    Uses cursor-based pagination via the "next" URL to avoid the 10 000-row
+    offset ceiling that the API imposes on page-based pagination.
     """
-    page = 1
+    current_url: str = url
+    current_params: dict[str, Any] = {**params, "size": page_size}
+    page = 0
     while True:
-        payload = _get(url, {**params, "page": page, "size": page_size})
+        payload = _get(current_url, current_params)
         records = payload.get("results", [])
         if not records:
             break
-        yield records
-        total = payload.get("total", 0)
-        if page * page_size >= total:
-            break
         page += 1
-        logger.debug("ADEME page %d / %d from %s", page, -(-total // page_size), url)
+        yield records
+        next_url: str | None = payload.get("next")
+        if not next_url:
+            break
+        # All query params are already encoded in the cursor URL.
+        current_url = next_url
+        current_params = {}
+        logger.debug("ADEME cursor page %d from %s", page + 1, current_url[:80])
 
 
 # ---------------------------------------------------------------------------

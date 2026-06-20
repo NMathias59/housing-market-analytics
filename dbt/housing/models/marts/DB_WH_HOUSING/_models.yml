@@ -1,0 +1,77 @@
+version: 2
+
+models:
+  - name: rpt_dynamique_marche_dept
+    description: >
+      Dynamique globale du marché immobilier par département et année.
+      Croise ancien (DVF), neuf (ECLN), construction (Sit@del) et DPE.
+      Table principale pour les dashboards de suivi de marché. Grain : (annee, code_departement).
+    columns:
+      - name: annee
+        tests:
+          - not_null
+      - name: code_departement
+        tests:
+          - not_null
+      - name: ratio_prix_neuf_ancien
+        description: "Prix/m² neuf divisé par prix/m² ancien — indicateur de surchauffe du neuf."
+
+  - name: rpt_performance_energetique_dept
+    description: >
+      Performance énergétique du parc immobilier par département et année.
+      Distribution des étiquettes DPE, % passoires thermiques, consommations moyennes.
+      Grain : (annee, code_departement).
+    columns:
+      - name: annee
+        tests:
+          - not_null
+      - name: code_departement
+        tests:
+          - not_null
+      - name: pct_passoires
+        description: "% de logements en classe F ou G dans le département."
+      - name: pct_bonne_classe
+        description: "% de logements en classe A, B ou C."
+
+  - name: rpt_tension_immobiliere_dept
+    description: >
+      Indicateurs de tension immobilière par département et année. Croise l'offre
+      (construction neuve, stock neuf, logement social) et la demande (transactions
+      DVF, réservations neuf). Grain : (annee, code_departement).
+    columns:
+      - name: annee
+        tests:
+          - not_null
+      - name: code_departement
+        tests:
+          - not_null
+      - name: nb_ventes
+        description: "Total annuel de lots vendus dans l'ancien."
+      - name: taux_reservation
+        description: "% de réservations sur mises en vente dans le neuf — proxy de tension."
+
+  - name: rpt_prix_commune
+    description: >
+      Statistiques de prix au m² par commune, année et type de bien.
+      Table de reporting pour la visualisation et le benchmark des prix de marché.
+      Grain : (annee, code_commune, type_local).
+    columns:
+      - name: annee
+        tests:
+          - not_null
+      - name: code_commune
+        tests:
+          - not_null
+      - name: type_local
+        tests:
+          - not_null
+      - name: nb_transactions
+        description: "Nombre de lots vendus dans cette commune, cette année, pour ce type."
+      - name: prix_m2_moyen
+        description: "Prix moyen au m²."
+      - name: prix_m2_median
+        description: "Prix médian au m² (quantile 50%)."
+      - name: prix_m2_q1
+        description: "1er quartile du prix au m²."
+      - name: prix_m2_q3
+        description: "3e quartile du prix au m²."

@@ -1,34 +1,147 @@
-# Project Overview
+# Housing Market Analytics
 
-Apache Airflow is one of the most widely-used engines for orchestrating Extract, Transform, and Load (ETL) jobs, especially for transformations using [dbt](https://www.getdbt.com). dbt is a framework to create reliable transformations to produce high-quality data for businesses, usually in analytical databases like Snowflake and BigQuery.
+Pipeline de données et ML sur le marché immobilier français — centralise les sources publiques dans ClickHouse via Airflow + dbt.
 
-This project showcases using dbt and Airflow together with [Cosmos](https://github.com/astronomer/astronomer-cosmos), allowing users to deploy dbt in production with Airflow best-practices.
+## Stack
 
-Astronomer is the best place to host Apache Airflow -- try it out with a free trial at [astronomer.io](https://www.astronomer.io/).
+| Composant | Technologie |
+|-----------|-------------|
+| Orchestration | Apache Airflow 3.x (Astronomer) |
+| Transformations | dbt Core 1.11 + dbt-clickhouse 1.9 + astronomer-cosmos 1.10 |
+| Warehouse | ClickHouse 25.x |
+| Runtime | Python 3.12, Docker Compose |
+| ML (à venir) | XGBoost / LightGBM, PyTorch 2.x, SHAP |
 
-# Learning Paths
+## Sources de données
 
-To learn more about data engineering with Apache Airflow, dbt, and Cosmos, make a few changes to this project! For example, try one of the following:
+| Source | Fournisseur | API / Format | Fréquence | Lignes actuelles |
+|--------|-------------|--------------|-----------|-----------------|
+| DVF — Demandes de Valeurs Foncières | DGFiP | CSV.GZ streaming | Annuelle | ~8.8M |
+| DPE — Diagnostics de Performance Énergétique | ADEME | REST (cursor pagination) | Continue | ~2.1M |
+| ECLN — Commercialisation logements neufs | SDES/DiDo | REST (DiDo v1) | Trimestrielle | ~24k |
+| RPLS — Répertoire des logements sociaux | SDES/DiDo | REST (DiDo v1) | Annuelle | ~58k |
+| EPTB — Prix terrains et maisons neuves | SDES/DiDo | REST (DiDo v1) | Trimestrielle | ~600 |
+| Sit@del2 — Permis de construire | SDES/DiDo | REST (DiDo v1) | Mensuelle | ~4.4k |
+| INSEE — Revenus / démographie | INSEE | À intégrer | — | — |
+| Banque de France — Taux immobiliers | BdF | À intégrer | — | — |
 
-1. Use Postgres, MySQL, Snowflake, or another production-ready database instead of DuckDB
-2. Change the Cosmos DbtDag to Cosmos DbtTaskGroups! For extra help, check out the [Cosmos examples of DbtTaskGroups](https://github.com/astronomer/astronomer-cosmos/blob/main/dev/dags/basic_cosmos_task_group.py)
+## Architecture
 
-# Project Contents
+```
+dags/
+└── ingestion_housing.py     DAG mensuel d'ingestion (schedule: 1er du mois 04h00 UTC)
 
-Your Astro project contains the following files and folders:
+include/
+└── ingestion/
+    ├── base.py              Utilitaires partagés : client ClickHouse, watermarks,
+    │                        retry HTTP (tenacity), pagineurs REST, chargeur DataFrame
+    └── scripts/
+        ├── dvf.py           Transactions immobilières (CSV streaming)
+        ├── dpe.py           DPE ADEME (cursor pagination via champ "next")
+        ├── rpls.py          Logements sociaux (DiDo)
+        ├── ecln.py          Logements neufs (DiDo)
+        ├── eptb.py          Prix terrains/maisons neuves (DiDo)
+        ├── sitadel.py       Permis de construire (DiDo)
+        ├── insee.py         (à compléter)
+        └── macro.py         (à compléter)
 
-- dags: This folder contains the Python files for your Airflow DAGs. This project includes one example DAG:
-  - `dbt_cosmos_dag.py`: This DAG sets up [Cosmos](https://github.com/astronomer/astronomer-cosmos), allowing files in the /dbt directory to transform into Airflow tasks and taskgroups.
-- dbt/jaffle_shop: This folder contains the dbt project [jaffle_shop](https://github.com/dbt-labs/jaffle_shop_duckdb), a fictional ecommerce store. Use this as a starting point to learn how dbt and Airflow work together!
-- Dockerfile: This file contains a versioned Astro Runtime Docker image that provides a differentiated Airflow experience. If you want to execute other commands or overrides at runtime, specify them here.
-- include: This folder contains any additional files that you want to include as part of your project. In this example, constants.py includes configuration for your Cosmos project.
-- packages.txt: Install OS-level packages needed for your project by adding them to this file. It is empty by default.
-- requirements.txt: Install Python packages needed for your project by adding them to this file. In this project, we pin the Cosmos version.
-- plugins: Add custom or community plugins for your project to this file. It is empty by default.
-- airflow_settings.yaml: Use this local-only file to specify Airflow Connections, Variables, and Pools instead of entering them in the Airflow UI as you develop DAGs in this project.
+dbt/                         Modèles dbt (staging → marts) via astronomer-cosmos
+```
 
-# Deploying to Production
+## DAG d'ingestion
 
-### ❗Warning❗
+Le DAG `ingestion_housing` orchestre le chargement incrémental de toutes les sources :
 
-This template used DuckDB, an in-memory database, for running dbt transformations. While this is great to learn Airflow, your data is not guaranteed to persist between executions! For production applications, use a _persistent database_ instead (consider DuckDB's hosted option MotherDuck or another database like Postgres, MySQL, or Snowflake).
+```
+DVF ──┐
+      ├── [parallèle]
+DPE ──┘
+
+RPLS → ECLN → EPTB → SITADEL  [séquentiel — rate-limit DiDo max 3 connexions/IP]
+```
+
+- **DVF + DPE** : APIs indépendantes, exécutées en parallèle
+- **Sources DiDo** : enchaînées séquentiellement pour ne pas dépasser la limite de connexions
+- **Retry** : 8 tentatives, backoff exponentiel 5 s → 120 s (HTTPError, ConnectionError, Timeout)
+
+## Stratégie incrémentale et déduplication
+
+### Watermarks (éviter les re-téléchargements)
+
+Chaque source maintient un watermark dans `db_wh_housing._ingestion_watermarks`. À chaque run, le script ne télécharge que les données postérieures au dernier watermark connu.
+
+| Source | Granularité watermark | Mise à jour |
+|--------|----------------------|-------------|
+| DPE | Date ISO (`YYYY-MM-DD`) | Après chaque page (10k lignes) |
+| DVF | Année (`YYYY`) | Après chaque année complète |
+| SITADEL | Mois (`YYYY-MM`) | Après le run complet |
+| ECLN/EPTB | Trimestre (`YYYY-TN`) | Après le run complet |
+| RPLS | Mois (`YYYY-MM`) | Après le run complet |
+
+### ReplacingMergeTree (déduplication en cas de retry)
+
+Toutes les tables `raw_*` utilisent `ENGINE = ReplacingMergeTree(_loaded_at)`. Si un retry Airflow réinsère des lignes déjà chargées, ClickHouse les déduplique automatiquement à la prochaine fusion (ou immédiatement avec `FINAL`).
+
+**Clés de déduplication par table :**
+
+| Table | ORDER BY (clé de dédup) |
+|-------|------------------------|
+| `raw_dvf` | `(annee, code_commune, id_mutation, id_parcelle, type_local)` |
+| `raw_dpe` | `(annee, code_commune, numero_dpe)` |
+| `raw_sitadel` | `(annee, mois, code_commune, type_logement)` |
+| `raw_ecln` | `(annee, trimestre, code_departement, type_logement)` |
+| `raw_eptb` | `(annee, trimestre, code_departement, type_logement)` |
+| `raw_rpls` | `(annee, code_commune, financement)` |
+
+> **Important pour les modèles dbt :** toujours utiliser `SELECT … FINAL` ou une vue avec `FINAL` pour requêter les tables `raw_*`, afin d'obtenir les données dédupliquées sans attendre la prochaine fusion de fond.
+
+```sql
+-- Exemple de requête correcte sur raw_dpe
+SELECT * FROM db_wh_housing.raw_dpe FINAL WHERE annee = 2024;
+```
+
+## Démarrage local
+
+### Prérequis
+
+- Docker Desktop
+- [Astro CLI](https://docs.astronomer.io/astro/cli/install-cli)
+
+### Lancement
+
+```bash
+astro dev start
+```
+
+Airflow UI : http://localhost:8080 (admin / admin)
+
+### Variables d'environnement requises
+
+Définies dans `airflow_settings.yaml` ou via l'UI Airflow (connexion `clickhouse_default`) :
+
+```
+CLICKHOUSE_HOST      hôte ClickHouse (host.docker.internal en local)
+CLICKHOUSE_PORT      8123 (HTTP)
+CLICKHOUSE_USER      utilisateur ClickHouse
+CLICKHOUSE_PASSWORD  mot de passe
+```
+
+### Tests
+
+```bash
+# Depuis le container scheduler
+docker exec dbt-on-astro_<id>-scheduler-1 python -m pytest tests/ -v
+```
+
+243 tests — ingestion base, DVF, DPE, RPLS, ECLN, EPTB, Sit@del2.
+
+## Watermarks actuels
+
+| Source | Dernier chargement |
+|--------|--------------------|
+| dvf | 2025 (années 2021–2025) |
+| dpe | 2022-07-18 (chargement en cours) |
+| ecln | 2026-T1 (à jour) |
+| rpls | 2025-01 (à jour) |
+| eptb | — (données limitées) |
+| sitadel | 2024-10 (chargement en cours) |
