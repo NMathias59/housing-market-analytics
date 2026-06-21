@@ -7,14 +7,16 @@ Granularité : mensuelle × commune (28,5 M lignes)
 Watermark : "YYYY-MM" (dernier mois entièrement chargé)
 
 Stratégie incrémentale :
-  Les données sont triées par -ANNEE,-MOIS (plus récent en premier).
-  On s'arrête dès qu'une page contient des lignes antérieures au watermark,
-  ce qui évite de relire 28 M lignes à chaque run mensuel.
+  DiDo publie un seul millesime contenant l'intégralité des données (2013→).
+  On télécharge le CSV en streaming et on filtre côté client les lignes
+  postérieures au watermark — beaucoup plus rapide que la pagination JSON
+  (1 download vs 285 000 appels API à 100 lignes/page).
 
 Env vars requis :
     CLICKHOUSE_HOST, CLICKHOUSE_USER, CLICKHOUSE_PASSWORD
 
-RID DiDo hardcodé : 577a8a66-4157-4787-b00a-031b61afea61
+RID DiDo     : 577a8a66-4157-4787-b00a-031b61afea61
+Dataset DiDo : 660432ce0b8987ef5dd9465d
   (Logements autorisés et commencés, séries mensuelles communales)
 
 Usage :
@@ -33,9 +35,10 @@ from dotenv import load_dotenv
 
 from include.ingestion.base import (
     ensure_watermark_table,
-    fetch_dido_pages,
     get_client,
+    get_json,
     get_watermark,
+    iter_csv_chunks,
     load_df,
     set_watermark,
 )
@@ -57,6 +60,7 @@ SOURCE = "sitadel"
 TABLE = "db_wh_housing.raw_sitadel"
 _DIDO_BASE = "https://data.statistiques.developpement-durable.gouv.fr/dido/api/v1"
 _RID = "577a8a66-4157-4787-b00a-031b61afea61"
+_DATASET_ID = "660432ce0b8987ef5dd9465d"
 
 DDL = f"""
     CREATE TABLE IF NOT EXISTS {TABLE}
@@ -77,16 +81,15 @@ DDL = f"""
     SETTINGS allow_nullable_key = 1
 """
 
-# DiDo column name → notre schéma
 _RENAME_MAP = {
-    "ANNEE":    "annee",
-    "MOIS":     "mois",
+    "ANNEE":      "annee",
+    "MOIS":       "mois",
     "CODE_INSEE": "code_commune",
-    "TYPE_LGT": "type_logement",
-    "LOG_AUT":  "nb_logements_autorises",
-    "LOG_COM":  "nb_logements_commences",
-    "SDP_AUT":  "surface_autorisee",
-    "SDP_COM":  "surface_commencee",
+    "TYPE_LGT":   "type_logement",
+    "LOG_AUT":    "nb_logements_autorises",
+    "LOG_COM":    "nb_logements_commences",
+    "SDP_AUT":    "surface_autorisee",
+    "SDP_COM":    "surface_commencee",
 }
 
 _INT_COLS    = ["mois", "nb_logements_autorises", "nb_logements_commences"]
@@ -98,15 +101,24 @@ _STRING_COLS = ["code_commune", "code_departement", "type_logement"]
 # Helpers
 # ---------------------------------------------------------------------------
 
+def get_latest_millesime() -> str:
+    """Return the most recent millesime available for the Sitadel datafile."""
+    data = get_json(f"{_DIDO_BASE}/datasets/{_DATASET_ID}")
+    for df_info in data.get("datafiles", []):
+        if df_info.get("rid") == _RID:
+            millesimes = sorted(m["millesime"] for m in df_info.get("millesimes", []))
+            if millesimes:
+                return millesimes[-1]
+    raise RuntimeError("No millesime available for Sitadel in DiDo catalogue — will retry tomorrow")
+
+
 def _dept_from_commune(code: str) -> str:
-    """Derive department code from INSEE commune code."""
     if code[:2] in ("97", "98"):
         return code[:3]
     return code[:2]
 
 
 def _parse_watermark(wm: str | None) -> tuple[int, int] | None:
-    """Parse "YYYY-MM" watermark into (year, month) ints, or None."""
     if wm and len(wm) >= 7:
         try:
             return int(wm[:4]), int(wm[5:7])
@@ -119,15 +131,15 @@ def _parse_watermark(wm: str | None) -> tuple[int, int] | None:
 # Extract / Transform
 # ---------------------------------------------------------------------------
 
-def parse(records: list[dict]) -> pd.DataFrame:
+def parse(chunk: pd.DataFrame, since_ym: tuple[int, int] | None) -> pd.DataFrame:
     """
-    Rename DiDo columns, derive code_departement, cast types.
-    Returns an empty DataFrame when records is empty.
+    Rename CSV columns, derive code_departement, cast types,
+    and filter rows strictly newer than since_ym.
     """
-    if not records:
+    if chunk.empty:
         return pd.DataFrame()
 
-    df = pd.DataFrame(records).rename(columns=_RENAME_MAP)
+    df = chunk.rename(columns=_RENAME_MAP)
 
     if "code_commune" in df.columns:
         df["code_commune"] = df["code_commune"].fillna("").astype(str)
@@ -148,9 +160,16 @@ def parse(records: list[dict]) -> pd.DataFrame:
         if col in df.columns and col != "code_commune":
             df[col] = df[col].fillna("").astype(str)
 
+    if since_ym and "annee" in df.columns and "mois" in df.columns:
+        wm_year, wm_month = since_ym
+        new_mask = (df["annee"] > wm_year) | (
+            (df["annee"] == wm_year) & (df["mois"] > wm_month)
+        )
+        df = df[new_mask]
+
     output_cols = list(_RENAME_MAP.values()) + ["code_departement"]
     present = [c for c in output_cols if c in df.columns]
-    return df[present]
+    return df[present].reset_index(drop=True)
 
 
 # ---------------------------------------------------------------------------
@@ -159,14 +178,11 @@ def parse(records: list[dict]) -> pd.DataFrame:
 
 def run(*, full_refresh: bool = False, dry_run: bool = False) -> int:
     """
-    Ingest Sit@del2 data incrementally from DiDo API into ClickHouse.
+    Ingest Sit@del2 data incrementally from DiDo CSV into ClickHouse.
 
-    Data is fetched most-recent-first (orderBy=-ANNEE,-MOIS). Pagination
-    stops as soon as a page contains rows older than the watermark.
+    Streams the full millesime CSV in 50k-row chunks and filters client-side.
     Returns the total number of rows inserted (0 in dry-run mode).
     """
-    endpoint = f"{_DIDO_BASE}/datafiles/{_RID}/rows"
-
     client = get_client()
     ensure_watermark_table(client)
     client.command(DDL)
@@ -174,50 +190,50 @@ def run(*, full_refresh: bool = False, dry_run: bool = False) -> int:
     watermark = None if full_refresh else get_watermark(client, SOURCE)
     since_ym = _parse_watermark(watermark)
 
+    millesime = get_latest_millesime()
+
+    last_millesime = get_watermark(client, f"{SOURCE}_millesime")
+    if last_millesime and last_millesime == millesime:
+        logger.info("Sit@del2 already up to date (millesime %s) — nothing to do", millesime)
+        return 0
+
+    csv_url = (
+        f"{_DIDO_BASE}/datafiles/{_RID}/csv"
+        f"?millesime={millesime}&withColumnName=true&withColumnDescription=false&withColumnUnit=false"
+    )
+
     if since_ym:
         logger.info(
-            "Incremental run — fetching Sit@del2 after %d-%02d", *since_ym
+            "Incremental run — Sit@del2 millesime %s, filtering after %d-%02d",
+            millesime, *since_ym,
         )
     else:
-        logger.info("Full load — fetching all Sit@del2 data (28 M rows)")
+        logger.info("Full load — Sit@del2 millesime %s (28 M rows)", millesime)
 
-    params = {"orderBy": "-ANNEE,-MOIS"}
     total_inserted = 0
     max_ym: tuple[int, int] | None = None
 
-    for records in fetch_dido_pages(endpoint, params):
-        df = parse(records)
+    for chunk in iter_csv_chunks(csv_url, chunk_size=50_000, sep=";"):
+        df = parse(chunk, since_ym)
         if df.empty:
             continue
 
-        has_old = False
-        if since_ym and "annee" in df.columns and "mois" in df.columns:
-            wm_year, wm_month = since_ym
-            new_mask = (df["annee"] > wm_year) | (
-                (df["annee"] == wm_year) & (df["mois"] > wm_month)
-            )
-            has_old = bool((~new_mask).any())
-            df = df[new_mask]
+        if "annee" in df.columns and "mois" in df.columns:
+            for yr in df["annee"].dropna().unique():
+                yr_int = int(yr)
+                m = int(df[df["annee"] == yr]["mois"].dropna().max())
+                if max_ym is None or (yr_int, m) > max_ym:
+                    max_ym = (yr_int, m)
 
-        if not df.empty:
-            if "annee" in df.columns and "mois" in df.columns:
-                for yr in df["annee"].dropna().unique():
-                    yr_int = int(yr)
-                    m = int(df[df["annee"] == yr]["mois"].dropna().max())
-                    if max_ym is None or (yr_int, m) > max_ym:
-                        max_ym = (yr_int, m)
-
-            if dry_run:
-                logger.info("[dry-run] Would insert %d rows", len(df))
-            else:
-                total_inserted += load_df(client, df, TABLE)
-
-        if has_old:
-            break
+        if dry_run:
+            logger.info("[dry-run] Would insert %d rows", len(df))
+        else:
+            total_inserted += load_df(client, df, TABLE)
 
     if not dry_run and max_ym is not None:
         wm_str = f"{max_ym[0]}-{max_ym[1]:02d}"
         set_watermark(client, SOURCE, wm_str)
+        set_watermark(client, f"{SOURCE}_millesime", millesime)
 
     logger.info("Done — %d rows inserted (dry_run=%s)", total_inserted, dry_run)
     return total_inserted
@@ -229,7 +245,7 @@ def run(*, full_refresh: bool = False, dry_run: bool = False) -> int:
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Ingest Sit@del2 (autorisations urbanisme) from DiDo API."
+        description="Ingest Sit@del2 (autorisations urbanisme) from DiDo CSV."
     )
     parser.add_argument("--full-refresh", action="store_true",
                         help="Ignore the watermark and reload all data.")

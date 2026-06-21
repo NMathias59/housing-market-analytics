@@ -67,9 +67,11 @@ DIDO_SOURCES: list[dict] = [
         "doc":       "EPTB — Prix terrains et maisons neuves (SDES/DiDo)",
     },
     {
-        "source_id": "sitadel",
-        "module":    "include.ingestion.scripts.sitadel",
-        "doc":       "Sit@del2 — Permis de construire (SDES/DiDo)",
+        "source_id":   "sitadel",
+        "module":      "include.ingestion.scripts.sitadel",
+        "doc":         "Sit@del2 — Permis de construire (SDES/DiDo)",
+        "retries":     14,                       # jusqu'au 15 du mois
+        "retry_delay": timedelta(days=1),        # réessai le lendemain si millesime pas encore publié
     },
 ]
 
@@ -97,7 +99,7 @@ def _make_callable(module_path: str):
 with DAG(
     dag_id="ingestion_housing",
     description="Ingestion des sources immobilières → db_wh_housing (DVF+DPE en parallèle, DiDo en séquence)",
-    schedule="0 4 1 * *",   # 1er du mois à 04h00
+    schedule="0 4 7 * *",   # 7 du mois à 04h00 — sources DiDo/ADEME publiées avec délai
     start_date=datetime(2024, 1, 1),
     catchup=False,
     max_active_runs=1,
@@ -126,6 +128,8 @@ with DAG(
             task_id=f"ingest_{s['source_id']}",
             python_callable=_make_callable(s["module"]),
             doc_md=s["doc"],
+            retries=s.get("retries", 2),
+            retry_delay=s.get("retry_delay", timedelta(minutes=10)),
         )
         if dido_tasks:
             dido_tasks[-1] >> task
