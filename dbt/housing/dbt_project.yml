@@ -22,3 +22,5 @@ models:
       +materialized: table
     marts:
       +materialized: table
+      DB_AI_HOUSE:
+        +schema: db_ai_house
