@@ -29,6 +29,11 @@ try:
 except ImportError:
     from airflow.operators.python import PythonOperator
 
+try:
+    from airflow.operators.trigger_dagrun import TriggerDagRunOperator
+except ImportError:
+    from airflow.providers.standard.operators.trigger_dagrun import TriggerDagRunOperator
+
 from include.constants import housing_path, housing_profile_config, venv_execution_config
 
 # ---------------------------------------------------------------------------
@@ -144,4 +149,17 @@ with DAG(
         render_config=RenderConfig(load_method=LoadMode.DBT_LS),
     )
 
-    [*parallel_tasks, dido_tasks[-1]] >> dbt_transform
+    trigger_ml = TriggerDagRunOperator(
+        task_id='trigger_predict_ml',
+        trigger_dag_id='predict_housing_ml',
+        wait_for_completion=False,
+        reset_dag_run=True,
+    )
+    trigger_lstm = TriggerDagRunOperator(
+        task_id='trigger_predict_lstm',
+        trigger_dag_id='predict_housing_lstm',
+        wait_for_completion=False,
+        reset_dag_run=True,
+    )
+
+    [*parallel_tasks, dido_tasks[-1]] >> dbt_transform >> [trigger_ml, trigger_lstm]

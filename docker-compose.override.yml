@@ -1,7 +1,30 @@
 version: "3.1"
 
-# mount the dbt directory as a volume
+# Dans les containers Docker sur Windows, localhost = le container lui-même.
+# host.docker.internal est le nom DNS résolu vers la machine Windows hôte
+# par Docker Desktop, ce qui permet d'atteindre ClickHouse (autre docker-compose)
+# dont le port 8123 est exposé sur la machine hôte.
+x-clickhouse-env: &clickhouse-env
+  CLICKHOUSE_HOST: "host.docker.internal"
+  CLICKHOUSE_PORT: "8123"
+  CLICKHOUSE_USER: "admin"
+  CLICKHOUSE_PASSWORD: "password123"
+
 services:
   scheduler:
     volumes:
       - ./dbt:/usr/local/airflow/dbt
+    environment:
+      <<: *clickhouse-env
+
+  triggerer:
+    environment:
+      <<: *clickhouse-env
+
+  dag-processor:
+    environment:
+      <<: *clickhouse-env
+
+  api-server:
+    environment:
+      <<: *clickhouse-env
