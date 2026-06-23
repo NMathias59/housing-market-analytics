@@ -3,7 +3,7 @@
 Pipeline de données et ML de bout en bout sur le marché immobilier français.
 Ingestion multi-sources → warehouse ClickHouse → transformations dbt → modèles prédictifs (LightGBM + LSTM) → analyse SHAP des drivers de prix.
 
-> **Contexte entretien** : projet personnel construit pour couvrir l'ensemble du cycle analytique — data engineering, modélisation dimensionnelle, feature engineering, ML supervisé et interprétabilité. Toutes les données sont publiques et open data.
+Projet personnel couvrant l'ensemble du cycle analytique — data engineering, modélisation dimensionnelle, feature engineering, ML supervisé et interprétabilité. Toutes les données sont publiques et open data.
 
 ---
 
